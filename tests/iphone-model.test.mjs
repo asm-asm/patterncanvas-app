@@ -37,3 +37,4 @@ test('top and bottom stitch numbers switch direction without changing chart or s
   assert.equal(stitchNumber(122,123,true),1);
  }finally{delete globalThis.devicePixelRatio;}
 });
+test('Recolouring a yarn changes every cell of that yarn at once and nothing else',()=>{const p=M.blank(3,2);p.cells=[[0,1,0],[1,1,2]];const cells=JSON.stringify(p.cells);M.recolorYarn(p,1,'#FF0000');assert.equal(p.yarns.find(y=>y.id===1).color,'#ff0000');assert.equal(JSON.stringify(p.cells),cells);assert.equal(p.yarns.find(y=>y.id===0).color,'#f3ead9');M.recolorYarn(p,0,'#123456');assert.equal(M.validate(JSON.parse(JSON.stringify(p))).yarns[0].color,'#123456');assert.throws(()=>M.recolorYarn(p,1,'red'));assert.throws(()=>M.recolorYarn(p,9,'#000000'));});

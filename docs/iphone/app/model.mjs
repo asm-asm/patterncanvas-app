@@ -176,6 +176,12 @@ export function renameYarn(p,id,name){
  const yarn=p.yarns.find(y=>y.id===id);if(!yarn)throw Error('毛糸が見つかりません。');
  yarn.name=next;
 }
+// Every cell keeps its yarn, so recolouring a yarn swaps the colour everywhere it is used in one step.
+export function recolorYarn(p,id,color){
+ if(!/^#[0-9a-f]{6}$/i.test(String(color)))throw Error('色を選んでください。');
+ const yarn=p.yarns.find(y=>y.id===id);if(!yarn)throw Error('毛糸が見つかりません。');
+ yarn.color=String(color).toLowerCase();
+}
 
 // Padding is real stitches in the repeat tile, shared by both renderers.
 export function padPattern(p,{left,right,bottom,top,color}){
