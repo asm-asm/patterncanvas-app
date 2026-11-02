@@ -23,14 +23,20 @@ try{
  const yarns=(await read()).yarns,cells=JSON.stringify((await read()).cells),second=yarns[1];
  await page.locator('#palette button').nth(1).click();assert(await page.locator('#recolor-row').isVisible());
  assert.equal(await page.inputValue('#yarn-recolor'),second.color);
- await page.locator('#yarn-recolor').fill('#c0392b');await page.locator('#yarn-recolor').dispatchEvent('change');
+ // The iOS picker sends a stream of input/change events while a slider moves: the picker element must survive
+ // (replacing it closes the picker), the chart follows live, and the whole drag is one undo step.
+ await page.locator('#yarn-recolor').evaluate(e=>{window.pickerNode=e;});
+ for(const c of ['#a04040','#b03a35','#c0392b'])await page.locator('#yarn-recolor').evaluate((e,c)=>{e.value=c;e.dispatchEvent(new Event('input'));e.dispatchEvent(new Event('change'));},c);
+ assert(await page.locator('#yarn-recolor').evaluate(e=>e===window.pickerNode&&document.contains(e)),'picker element kept while sliding');
+ await page.waitForTimeout(1200);
  assert.equal(await color(second.id),'#c0392b');assert.equal(JSON.stringify((await read()).cells),cells,'cells keep their yarn');
  assert.equal(await page.locator('#palette button').nth(1).evaluate(b=>getComputedStyle(b).getPropertyValue('--swatch').trim()),'#c0392b');
  await page.locator('#undo').click();assert.equal(await color(second.id),second.color,'undo restores the colour');
  await page.locator('#redo').click();assert.equal(await color(second.id),'#c0392b');
  // Settings: tap the background yarn's swatch.
  await page.locator('[data-view=settings]').click();const swatch=page.locator('#yarn-list .yarn-swatch').first();
- assert.equal(await swatch.inputValue(),yarns[0].color);await swatch.fill('#fdfdfd');await swatch.dispatchEvent('change');assert.equal(await color(yarns[0].id),'#fdfdfd');
+ assert.equal(await swatch.inputValue(),yarns[0].color);await swatch.evaluate(e=>{window.swatchNode=e;});for(const c of ['#fafafa','#fdfdfd'])await swatch.evaluate((e,c)=>{e.value=c;e.dispatchEvent(new Event('input'));},c);
+ assert(await swatch.evaluate(e=>e===window.swatchNode&&document.contains(e)),'settings swatch kept while sliding');await page.waitForTimeout(1200);assert.equal(await color(yarns[0].id),'#fdfdfd');
  await page.locator('[data-view=chart]').click();await page.locator('#palette button').first().click();assert.equal(await page.inputValue('#yarn-recolor'),'#fdfdfd','palette follows the settings change');
  // Locked chart: no recolouring.
  await page.locator('#chart-lock').click();assert(await page.locator('#recolor-row').isHidden());
