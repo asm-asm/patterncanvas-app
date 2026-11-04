@@ -64,3 +64,4 @@ h1{font-size:24px}
 .recolor-row input#yarn-recolor,.yarn-row input.yarn-swatch{-webkit-appearance:none;appearance:none;width:36px;height:36px;min-width:36px;max-width:36px;min-height:36px;margin:0;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--swatch,#fff);color:transparent;font-size:0;flex:0 0 36px;cursor:pointer;overflow:hidden}
 #yarn-recolor::-webkit-color-swatch-wrapper,.yarn-swatch::-webkit-color-swatch-wrapper{padding:0}#yarn-recolor::-webkit-color-swatch,.yarn-swatch::-webkit-color-swatch{border:none;border-radius:50%}
 .yarn-swatch:disabled,#yarn-recolor:disabled{opacity:.5}
+.access-close{position:absolute;top:6px;right:6px;width:44px;height:44px;min-height:44px;padding:0;border:0;background:none;font-size:24px;line-height:1;color:var(--muted)}.access-close[hidden]{display:none}

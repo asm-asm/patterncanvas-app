@@ -7,7 +7,9 @@ export function canUse(){
  return status.state==='trial'&&Number.isFinite(status.expiresAt)&&Math.max(Date.now(),status.now+Math.max(0,performance.now()-receivedAt))<status.expiresAt;
 }
 export const accessState=()=>status.state;
-export function requireUse(){if(canUse())return true;openPurchase();return false;}
+// Before the trial has started, the first try at editing or counting shows the trial terms with one button to start
+// it (the app opens straight into the guide instead of a sheet at launch). Afterwards it opens the purchase screen.
+export function requireUse(){if(canUse())return true;if(Platform.native&&status.state==='notStarted'&&$('access-dialog')){if(!$('access-dialog').open)showNotice('welcome');}else openPurchase();return false;}
 let lastAllowed=canUse(),lastState=status.state;
 function notifyAccess(){const allowed=canUse();if(allowed===lastAllowed&&status.state===lastState)return;lastAllowed=allowed;lastState=status.state;document.querySelectorAll('[data-purchase-disabled]').forEach(el=>{el.disabled=el.dataset.purchaseDisabled==='true';delete el.dataset.purchaseDisabled;});onChange();}
 function accept(next){status=next;receivedAt=performance.now();draw();notifyAccess();notice();}
@@ -32,7 +34,8 @@ function draw(){
  $('purchase-price').textContent=full?`体験後も編集・カウンターを使う場合は${full.price}の買い切りです。`:'体験後も編集・カウンターを使う場合は3,000円の買い切りです。購入価格はAppleの確認画面にも表示されます。';
 }
 export function restrictControls(){
- if(canUse())return;
+ // Before the trial the controls stay live so that tapping one offers the trial; after it they are disabled.
+ if(canUse()||status.state==='notStarted')return;
  const ids=['complete','previous','choose-row','row-go','memo-save','direction-bottom','direction-top','knitting-mode-save','name','dividers','apply-repeats','padding-open','padding-apply','add-color','new-project','text-open','text-apply','image-file','image-convert','photo-file','photo-apply','yoke-open','yoke-apply','import','flip-h','flip-v','clear','copy','move','undo','redo','stitch-edit','structure-apply','yarn-recolor'];
  for(const id of ids){const el=$(id);if(el){if(el.dataset.purchaseDisabled===undefined)el.dataset.purchaseDisabled=String(el.disabled);el.disabled=true;}}
  document.querySelectorAll('#tools button,#palette button,#yarn-list button,#yarn-list input').forEach(el=>{if(el.dataset.purchaseDisabled===undefined)el.dataset.purchaseDisabled=String(el.disabled);el.disabled=true;});
@@ -43,8 +46,8 @@ async function refresh(loadProducts=false){
  catch{if(!['legacy','purchased','trial'].includes(status.state))accept({state:'unavailable',products:[]});$('purchase-error').textContent='購入情報を取得できません。ネット接続とApple Accountを確認し「再確認」または「購入を復元」をお試しください。作品の閲覧・書き出しはできます。';}
  finally{refreshing=false;draw();if(pendingProducts){pendingProducts=false;void refresh(true);}}
 }
-// One-time notices: a welcome that states the trial terms before it starts (App Review 3.1.1), a reminder in the
-// last 24 hours, and a notice when the trial ends. Each is shown once (the welcome at most once a day).
+// Notices: the trial terms before it starts (App Review 3.1.1; shown on the first try at editing, see requireUse),
+// a reminder in the last 24 hours and a notice when the trial ends (each shown once, on their own).
 const SEEN='patterncanvas-purchase-notices',DAY=86400000;let noticeAction=null,noticeKind=null;
 const seen=()=>{try{return JSON.parse(localStorage.getItem(SEEN)||'{}');}catch{return {};}};
 const mark=(key,value)=>{try{localStorage.setItem(SEEN,JSON.stringify({...seen(),[key]:value}));}catch{}};
@@ -53,8 +56,7 @@ function notice(){
  const dialog=$('access-dialog');if(!Platform.native||!dialog||dialog.open||$('purchase-dialog')?.open||status.state==='checking')return;
  const now=Math.max(Date.now(),status.now+Math.max(0,performance.now()-receivedAt)),left=status.expiresAt-now,s=seen(),today=new Date(now).toDateString();
  let kind=null;
- if(status.state==='notStarted'&&s.welcome!==today)kind='welcome';
- else if(status.state==='trial'&&left>0&&left<DAY&&s.reminder!==status.expiresAt)kind='reminder';
+ if(status.state==='trial'&&left>0&&left<DAY&&s.reminder!==status.expiresAt)kind='reminder';
  else if((status.state==='expired'||status.state==='trial'&&left<=0)&&s.expired!==(status.expiresAt||'expired'))kind='expired';
  if(!kind)return;
  mark(kind,kind==='welcome'?today:status.expiresAt||'expired');showNotice(kind);
@@ -67,13 +69,16 @@ function fillNotice(){
  else if(kind==='reminder')set(`無料体験は残り約${Math.max(1,Math.ceil(left/3600000))}時間です`,[`${new Date(status.expiresAt).toLocaleString('ja-JP')}まで全機能をご利用いただけます。`,'体験終了後も作品は残り、閲覧・書き出しはできます。'],`続けて編集・段数カウンターを使う場合は${forever}で永久解除できます。自動課金はありません。`,`${price()}で永久解除`,'あとで');
  else set('無料体験が終了しました',['作品はそのまま残っています。','閲覧・拡大縮小・書き出しは引き続きできます。'],`編集・段数カウンターを続けるには${forever}で永久解除できます。自動課金はありません。`,`${price()}で永久解除`,'あとで（閲覧のみ）');
  $('access-restore').hidden=kind==='reminder';
+ // The trial terms close with × only; the other notices keep 「あとで」.
+ $('access-later').hidden=kind==='welcome';$('access-close').hidden=kind!=='welcome';
 }
 function showNotice(kind){noticeKind=kind;noticeAction=kind==='welcome'?TRIAL:FULL;$('access-error').textContent='';fillNotice();$('access-dialog').showModal();void refresh(true);}
 export function openPurchase(){if(!$('purchase-dialog'))return;if(!$('purchase-dialog').open)$('purchase-dialog').showModal();void refresh(true);}
 export function setupPurchases(changed){
  onChange=changed;if(!Platform.native)return;
  $('purchase-card').hidden=false;
- $('purchase-open').onclick=$('purchase-banner').onclick=openPurchase;
+ $('purchase-open').onclick=openPurchase;
+ $('purchase-banner').onclick=()=>status.state==='notStarted'&&!$('access-dialog').open?showNotice('welcome'):openPurchase();
  $('purchase-close').onclick=()=>$('purchase-dialog').close();
  $('purchase-refresh').onclick=()=>{void refresh(true);};
  async function act(action,out='purchase-error'){
@@ -83,7 +88,7 @@ export function setupPurchases(changed){
   finally{busy=false;draw();}
  }
  $('purchase-trial').onclick=()=>act(()=>Platform.purchaseProduct(TRIAL));
- $('access-later').onclick=()=>$('access-dialog').close();
+ $('access-later').onclick=$('access-close').onclick=()=>$('access-dialog').close();
  $('access-primary').onclick=async()=>{await act(()=>Platform.purchaseProduct(noticeAction),'access-error');if(canUse())$('access-dialog').close();};
  $('access-restore').onclick=async()=>{await act(()=>Platform.restorePurchases(),'access-error');if(canUse())$('access-dialog').close();};
  $('purchase-full').onclick=()=>act(()=>Platform.purchaseProduct(FULL));

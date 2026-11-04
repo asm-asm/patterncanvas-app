@@ -27,10 +27,12 @@ try{
   assert(await page.locator('#guide').isHidden());assert.equal(await page.locator('.guide-focus').count(),0);
   await page.reload();await page.locator('#chart').waitFor();await page.waitForTimeout(1500);assert(await page.locator('#guide').isHidden(),'shown once');
   assert.deepEqual(errors,[]);await context.close();}
- // 2. Before the trial: the trial sheet comes first, the guide only after 「あとで」; skip ends it.
+ // 2. Before the trial: the guide starts at once (no sheet at launch); trying it out offers the trial; skip ends it.
  {const {page,context}=await run({state:'notStarted',canPurchase:true},p=>p.addInitScript(()=>localStorage.removeItem('patterncanvas-purchase-notices')));
-  await page.locator('#access-dialog[open]').waitFor();await page.waitForTimeout(1000);assert(await page.locator('#guide').isHidden(),'guide waits for the trial sheet');
-  await page.locator('#access-later').click();await page.locator('#guide:not([hidden])').waitFor();
+  await page.locator('#guide:not([hidden])').waitFor();assert(await page.locator('#access-dialog').isHidden(),'no sheet before the guide');
+  await page.locator('#guide-next').click();assert.equal(await page.locator('#guide-title').textContent(),'色を選んで、マスをタップ');
+  await page.locator('#palette button').nth(1).click();await page.locator('#access-dialog[open]').waitFor();assert.equal(await page.locator('#access-primary').textContent(),'7日間の無料体験をはじめる');
+  await page.locator('#access-close').click();assert(await page.locator('#guide').isVisible(),'the guide is still there after ×');
   await page.locator('#guide-skip').click();assert(await page.locator('#guide').isHidden());
   await page.reload();await page.locator('#chart').waitFor();await page.waitForTimeout(1500);assert(await page.locator('#guide').isHidden(),'skip is remembered');await context.close();}
  // 3. Existing user with a saved project: their project, no guide.
@@ -39,5 +41,5 @@ try{
   await page.waitForTimeout(1500);assert.equal(await page.locator('#project-name').textContent(),'わたしの作品');assert(await page.locator('#guide').isHidden());await context.close();}
  // 4. Purchased or legacy user reinstalling: no guide.
  for(const state of ['purchased','legacy']){const {page,context}=await run({state,canPurchase:false});await page.waitForTimeout(1500);assert(await page.locator('#guide').isHidden(),state);await context.close();}
- console.log('PASS Nordic sample, guide after the trial sheet, three steps, once, skip, none for existing/purchased/legacy');
+ console.log('PASS Nordic sample, guide at once before the trial (trial offered on the first try), three steps, once, skip, none for existing/purchased/legacy');
 }finally{await browser.close();}

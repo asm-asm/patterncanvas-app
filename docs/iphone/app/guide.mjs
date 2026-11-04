@@ -1,5 +1,6 @@
 // First-run guide: three short steps on the sample chart. Shown once, only to people with no saved project,
-// never to purchased or legacy users, and only after the trial sheet (if any) has been closed. Always skippable.
+// never to purchased or legacy users. It starts at once on a new install (the trial terms appear only when the user
+// first tries to edit or count) and waits while any sheet is open. Always skippable.
 const DONE='patterncanvas-guide-done';
 const STEPS=[
  {title:'編み図と編み地は、同じ柄',text:'このプレビューの1目は、編み図の1マスです。編み図の色を変えると、プレビューもその場で変わります。',targets:['#preview-panel','#chart-panel .chart-viewport']},

@@ -19,19 +19,28 @@ await context.addInitScript(()=>{if(!sessionStorage.getItem('fixture'))window.pu
 const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
 const fixture=f=>page.evaluate(f=>sessionStorage.setItem('fixture',JSON.stringify(f)),f);
 try{
- // 1. First launch: welcome states duration, what stops and the price before the trial can start.
- await page.goto('http://127.0.0.1:4175/');await page.locator('#access-dialog[open]').waitFor();
+ // 1. First launch: no sheet at launch. The first try at counting (or editing) shows the trial terms before the trial
+ //    can start, with one start button and × to close (no 「あとで」); the controls stay live until then.
+ await page.goto('http://127.0.0.1:4175/');await page.locator('#chart').waitFor({state:'attached'});await page.waitForTimeout(1500);
+ assert(await page.locator('#access-dialog').isHidden(),'nothing at launch');assert(await page.locator('#complete').isEnabled(),'controls stay live before the trial');
+ await page.locator('[data-view=both]').click();await page.locator('#complete').click();await page.locator('#access-dialog[open]').waitFor();
  assert.equal(await page.locator('#access-title').textContent(),'7日間、すべての機能を無料で試せます');
  const terms=await page.locator('#access-dialog').textContent();for(const t of ['7日間','¥3,000の買い切り','自動課金・月額料金はありません','閲覧・書き出しはできます'])assert(terms.includes(t),t);
  await page.locator('#access-primary:not([disabled])').waitFor();assert.equal(await page.locator('#access-primary').textContent(),'7日間の無料体験をはじめる');
- for(const [width,height]of [[320,568],[844,390]]){await page.setViewportSize({width,height});const b=await page.locator('#access-primary').boundingBox();assert(b.y>=0&&b.y+b.height<=height,'start button visible');}
+ assert(await page.locator('#access-later').isHidden(),'no 「あとで」');assert(await page.locator('#access-close').isVisible(),'× to close');
+ assert.equal((await page.evaluate(()=>JSON.parse(localStorage.getItem('patterncanvas-iphone-v1')||'null')))?.completedRows?.length??0,0,'the tap did not count');
+ for(const [width,height]of [[320,568],[844,390]]){await page.setViewportSize({width,height});for(const id of ['#access-primary','#access-close']){const b=await page.locator(id).boundingBox();assert(b.y>=0&&b.y+b.height<=height&&b.x>=0&&b.x+b.width<=width,id+' visible');}}
  await page.setViewportSize({width:390,height:844});
+ // × closes; viewing still works; the next try (or the top banner) offers it again.
+ await page.locator('#access-close').click();await page.locator('#access-dialog').waitFor({state:'hidden'});
+ await page.locator('#palette button').nth(1).click();await page.locator('#access-dialog[open]').waitFor();await page.locator('#access-close').click();
+ await page.locator('#purchase-banner:not([hidden])').click();await page.locator('#access-dialog[open]').waitFor();
  await page.locator('#access-primary').click();await page.locator('#access-dialog').waitFor({state:'hidden'});
  assert.deepEqual(await page.evaluate(()=>window.bought),['jp.amimononote.ios.trial7']);assert(await page.locator('#complete').isEnabled());
  // Trial started: a small 「無料体験 残り7日」 pill, which opens the purchase sheet.
  await page.locator('#purchase-banner.trial-pill:not([hidden])').waitFor();assert.equal(await page.locator('#purchase-banner').innerText(),'無料体験 残り7日');
- // Not shown again the same day once dismissed or started.
- await fixture({state:'notStarted',canPurchase:true});await page.reload();await page.locator('#chart').waitFor();await page.waitForTimeout(1500);assert(await page.locator('#access-dialog').isHidden());
+ // Relaunching before the trial: still nothing at launch.
+ await fixture({state:'notStarted',canPurchase:true});await page.reload();await page.locator('#chart').waitFor({state:'attached'});await page.waitForTimeout(1500);assert(await page.locator('#access-dialog').isHidden());
  // 2. Last day reminder, once per trial.
  const expiresAt=Date.now()+5*3600000;await fixture({state:'trial',expiresAt,canPurchase:true});await page.reload();await page.locator('#access-dialog[open]').waitFor();
  assert.match(await page.locator('#access-title').textContent(),/^無料体験は残り約5時間です$/);await page.locator('#access-primary:not([disabled])').waitFor();assert.equal(await page.locator('#access-primary').textContent(),'¥3,000で永久解除');assert((await page.locator('#access-points').textContent()).includes('体験終了後も作品は残り'));assert.equal(await page.locator('#purchase-banner').innerText(),'無料体験 残り1日');
@@ -42,5 +51,5 @@ try{
  assert((await page.locator('#access-points').textContent()).includes('作品はそのまま残っています'));
  await page.locator('#access-primary:not([disabled])').waitFor();await page.locator('#access-primary').click();await page.locator('#access-dialog').waitFor({state:'hidden'});
  assert.equal((await page.evaluate(()=>window.bought)).at(-1),'jp.amimononote.ios.lifetime');await page.waitForFunction(()=>!document.querySelector('#complete').disabled,null,{timeout:3000});
- assert.deepEqual(errors,[]);console.log('PASS welcome terms before trial, start from welcome, once-a-day, last-day reminder, expiry notice and unlock');
+ assert.deepEqual(errors,[]);console.log('PASS no sheet at launch, trial terms on the first try with one start button and ×, start from it, last-day reminder, expiry notice and unlock');
 }finally{await browser.close();}

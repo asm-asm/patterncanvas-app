@@ -27,7 +27,7 @@ import WebKit
             try await Task.sleep(nanoseconds: 500_000_000)
         }
         XCTAssertTrue(ready, "Native page must finish loading")
-        // 1.2.1 states on the real native page: new install (trial sheet), trial (days-left pill), purchased (no pill).
+        // States on the real native page: new install (guide, trial terms on the first try), trial (days-left pill), purchased (no pill).
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         func capture(_ name: String) throws {
             let image = UIGraphicsImageRenderer(bounds: window.bounds).image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: true) }
@@ -37,13 +37,16 @@ import WebKit
             for _ in 0..<60 { if (try? await webView.evaluateJavaScript(script)) as? Bool == true { return true }; try? await Task.sleep(nanoseconds: 250_000_000) }
             return false
         }
-        let welcome = await waitJS("document.getElementById('access-dialog').open && document.getElementById('access-title').textContent === '7日間、すべての機能を無料で試せます'")
-        XCTAssertTrue(welcome, "New install shows the trial sheet first")
-        try capture("state-new-install.png")
-        _ = try await webView.evaluateJavaScript("document.getElementById('access-later').click()")
-        let guide = await waitJS("!document.getElementById('guide').hidden")
-        XCTAssertTrue(guide, "Guide follows the trial sheet on a new install")
+        // A new install opens straight into the guide; the trial terms appear on the first try at counting or editing,
+        // with one start button and × (no 「あとで」).
+        let guide = await waitJS("!document.getElementById('guide').hidden && !document.getElementById('access-dialog').open")
+        XCTAssertTrue(guide, "New install opens straight into the guide")
         try capture("state-guide.png")
+        _ = try await webView.evaluateJavaScript("document.getElementById('complete').click()")
+        let welcome = await waitJS("document.getElementById('access-dialog').open && document.getElementById('access-title').textContent === '7日間、すべての機能を無料で試せます' && document.getElementById('access-later').hidden && !document.getElementById('access-close').hidden")
+        XCTAssertTrue(welcome, "The first try at counting shows the trial terms")
+        try capture("state-new-install.png")
+        _ = try await webView.evaluateJavaScript("document.getElementById('access-close').click()")
         _ = try await webView.evaluateJavaScript("document.getElementById('guide-skip').click()")
         _ = try await webView.evaluateJavaScript("document.getElementById('purchase-open').click()")
         var purchasable = false

@@ -24,9 +24,9 @@ try{
  await page.evaluate(async()=>{const access=await import('./purchase-access.mjs');access.openPurchase();});await page.waitForFunction(()=>!document.querySelector('#purchase-trial').disabled);
  for(const [width,height]of [[320,568],[844,390],[768,1024]]){await page.setViewportSize({width,height});for(const id of ['purchase-trial','purchase-full','purchase-restore']){const b=await page.locator('#'+id).boundingBox();assert(b.x>=0&&b.y>=0&&b.x+b.width<=width&&b.y+b.height<=height);}}
  await page.setViewportSize({width:390,height:844});
- await page.evaluate(()=>window.purchaseAction='cancelled');await page.locator('#purchase-trial').click();assert(await page.locator('#complete').isDisabled());
- await page.evaluate(()=>window.purchaseAction='pending');await page.locator('#purchase-full').click();assert(await page.locator('#complete').isDisabled());
- await page.evaluate(()=>window.purchaseAction='error');await page.locator('#purchase-full').click();assert(await page.locator('#complete').isDisabled());
+ await page.evaluate(()=>window.purchaseAction='cancelled');await page.locator('#purchase-trial').click();assert(await page.evaluate(async()=>!(await import('./purchase-access.mjs')).canUse()),'still locked');
+ await page.evaluate(()=>window.purchaseAction='pending');await page.locator('#purchase-full').click();assert(await page.evaluate(async()=>!(await import('./purchase-access.mjs')).canUse()),'still locked');
+ await page.evaluate(()=>window.purchaseAction='error');await page.locator('#purchase-full').click();assert(await page.evaluate(async()=>!(await import('./purchase-access.mjs')).canUse()),'still locked');
  await page.evaluate(()=>window.purchaseAction='');await page.locator('#purchase-trial').click();await page.waitForFunction(()=>!document.querySelector('#complete').disabled);await page.locator('#purchase-close').click();
  await page.locator('#complete').click();const before=await page.evaluate(()=>localStorage.getItem('patterncanvas-iphone-v1'));assert.equal(JSON.parse(before).currentRow,2);
  await page.evaluate(()=>{window.purchaseFixture={state:'trial',expiresAt:Date.now()+500,canPurchase:true};window.purchaseChanged({...window.purchaseFixture,now:Date.now(),products:[]});});
