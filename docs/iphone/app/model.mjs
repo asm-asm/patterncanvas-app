@@ -29,32 +29,41 @@ export function blank(columns = 16, rows = 20) {
     yarns:[{id:0,name:'ミルク',color:'#f3ead9'},{id:1,name:'セージ',color:'#52796b'},{id:2,name:'アプリコット',color:'#dba487'},{id:3,name:'チャコール',color:'#3c4b49'}],
     horizontalRepeats:1,verticalRepeats:1,currentRow:1,topDown:false,flatKnitting:false,startWrongSide:false,completedRows:[],notes:{},showDividers:true,updatedAt:Date.now()};
 }
-// First-launch sample: a small Nordic band of two snowflakes between peerie borders (24 x 19, bottom row first).
-// . milk  S sage  A apricot
-const NORDIC=[
- '............',
- 'SSSSSSSSSSSS',
- '.A..A..A..A.',
- 'SSSSSSSSSSSS',
- '............',
- '.....S......',
- '..S..S..S...',
- '...S.S.S....',
- '....SAS.....',
- '.SSSAAASSS.A',
- '....SAS.....',
- '...S.S.S....',
- '..S..S..S...',
- '.....S......',
- '............',
- 'SSSSSSSSSSSS',
- '.A..A..A..A.',
- 'SSSSSSSSSSSS',
- '............'];
+// First-launch sample: a Fair Isle OXO band between peerie borders, 16 stitches x 27 rows, repeated 3 times across.
+// Three yarns, never more than two in a row (as in traditional Fair Isle); the motif colour changes in bands.
+// Top row first.  . milk  S sage  A apricot
+const FAIR_ISLE=[
+ '................',
+ 'SSSSSSSSSSSSSSSS',
+ '..A...A...A...A.',
+ '.AAA.AAA.AAA.AAA',
+ '..A...A...A...A.',
+ 'SSSSSSSSSSSSSSSS',
+ '................',
+ '................',
+ '......SSSSS.....',
+ '.....S.....S....',
+ '..A.A.......A.A.',
+ '.AA.A...A...A.AA',
+ 'SS..S..SSS..S..S',
+ 'S...S.SSSSS.S...',
+ 'SS..S..SSS..S..S',
+ '.AA.A...A...A.AA',
+ '..A.A.......A.A.',
+ '.....S.....S....',
+ '......SSSSS.....',
+ '................',
+ '................',
+ 'SSSSSSSSSSSSSSSS',
+ '..A...A...A...A.',
+ '.AAA.AAA.AAA.AAA',
+ '..A...A...A...A.',
+ 'SSSSSSSSSSSSSSSS',
+ '................'];
 export function sample() {
-  const p = blank(24,NORDIC.length); p.name='ノルディックの雪の結晶';p.horizontalRepeats=2;
+  const p = blank(16,FAIR_ISLE.length); p.name='フェアアイルのOXO';p.horizontalRepeats=3;p.yarns=p.yarns.slice(0,3);
   const id={'.':0,S:1,A:2};
-  p.cells = NORDIC.map(row=>[...row+row].map(c=>id[c])).reverse();return p;
+  p.cells = FAIR_ISLE.map(row=>[...row].map(c=>id[c])).reverse();return p;
 }
 export function validate(p) {
   const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max;

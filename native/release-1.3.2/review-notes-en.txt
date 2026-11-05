@@ -1,4 +1,4 @@
-Version 1.3.2 changes only the first-run flow (see the business-model paragraph below); no new features.
+Version 1.3.2 changes only the first run: the sample chart is now a three-colour Fair Isle OXO band (original design), and the app opens straight into it and the guide (see the business-model paragraph below). No new features.
 
 1.3.1 added one offline editing option: below the yarn palette, 「この色を変更」 opens the standard iOS colour picker for the selected yarn; every cell painted with that yarn takes the new colour (cells keep their yarn, so it is undoable with 「元に戻す」). The same works by tapping a yarn swatch in Settings (設定・保存) > 毛糸の色. It is an editing feature, so it follows the same lock and trial rules as the other editing tools.
 

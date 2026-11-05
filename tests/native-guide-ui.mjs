@@ -1,7 +1,7 @@
 import {webkit} from '@playwright/test';
 import assert from 'node:assert/strict';
 import {blank} from '../docs/iphone/app/model.mjs';
-// First run: Nordic sample opens, guide follows the trial sheet, three steps, shown once; existing and purchased users never see it.
+// First run: the Fair Isle sample opens, the guide starts at once, three steps, shown once; existing and purchased users never see it.
 const browser=await webkit.launch();
 async function run(fixture,setup=()=>{}){
  const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
@@ -19,7 +19,7 @@ export const readLock=()=>false;export const writeLock=()=>{};export const rowCo
 try{
  // 1. New install during the trial: sample + guide.
  {const {page,context,errors}=await run({state:'trial',expiresAt:Date.now()+6*86400000,canPurchase:true});
-  assert.equal(await page.locator('#project-name').textContent(),'ノルディックの雪の結晶');
+  assert.equal(await page.locator('#project-name').textContent(),'フェアアイルのOXO');
   await page.locator('#guide:not([hidden])').waitFor();
   const seen=[];for(let i=0;i<3;i++){seen.push(await page.locator('#guide-title').textContent());assert(await page.locator('.guide-focus').count()>=1,'something is highlighted');
    const b=await page.locator('#guide').boundingBox();assert(b.y>=0&&b.y+b.height<=844,'card on screen');await page.locator('#guide-next').click();}
@@ -41,5 +41,5 @@ try{
   await page.waitForTimeout(1500);assert.equal(await page.locator('#project-name').textContent(),'わたしの作品');assert(await page.locator('#guide').isHidden());await context.close();}
  // 4. Purchased or legacy user reinstalling: no guide.
  for(const state of ['purchased','legacy']){const {page,context}=await run({state,canPurchase:false});await page.waitForTimeout(1500);assert(await page.locator('#guide').isHidden(),state);await context.close();}
- console.log('PASS Nordic sample, guide at once before the trial (trial offered on the first try), three steps, once, skip, none for existing/purchased/legacy');
+ console.log('PASS Fair Isle sample, guide at once before the trial (trial offered on the first try), three steps, once, skip, none for existing/purchased/legacy');
 }finally{await browser.close();}
