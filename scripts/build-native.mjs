@@ -2,7 +2,7 @@ import {readFile,writeFile,mkdir,copyFile,readdir} from 'node:fs/promises';
 import {build} from 'esbuild';
 const root=new URL('../',import.meta.url),out=new URL('native/www/',root),app=new URL('docs/iphone/app/',root);
 await mkdir(out,{recursive:true});
-const files=['app.mjs','model.mjs','draw.mjs','app.css','image-model.mjs','image-worker.mjs','image-import.mjs','text-import.mjs','text-model.mjs','text-fonts.mjs','print-model.mjs','print-render.mjs','print-import.mjs','pdf.mjs','photo-import.mjs','photo-model.mjs','guide.mjs','yoke-model.mjs','yoke-import.mjs','padding.mjs','purchase-access.mjs','scan-model.mjs','scan-draw.mjs','scan-import.mjs'];
+const files=['app.mjs','model.mjs','draw.mjs','app.css','image-model.mjs','image-worker.mjs','image-import.mjs','text-import.mjs','text-model.mjs','text-fonts.mjs','print-model.mjs','print-render.mjs','print-import.mjs','pdf.mjs','photo-import.mjs','photo-model.mjs','guide.mjs','yoke-model.mjs','yoke-import.mjs','padding.mjs','purchase-access.mjs','scan-model.mjs','scan-import.mjs','chart-convert.mjs','stitches.mjs'];
 for(const file of files)await copyFile(new URL(file,app),new URL(file,out));
 // Bundled typefaces for the text chart, each with its licence. Only WOFF2 fonts and their .txt licences go in.
 const fontFiles=(await readdir(new URL('fonts/',app))).sort();await mkdir(new URL('fonts/',out),{recursive:true});

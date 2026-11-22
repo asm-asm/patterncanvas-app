@@ -1,4 +1,5 @@
 import {colorAt,symbolAt,rowNumber} from './model.mjs';
+import {drawStitch,stitchPart} from './stitches.mjs';
 import {stitchNumber} from './draw.mjs';
 import {layoutPrint,printedProject,yarnGlyphs,yarnUsage,usedIncreases,pageRange,hasNoStitch} from './print-model.mjs';
 import {buildPdf} from './pdf.mjs';
@@ -52,10 +53,11 @@ function legend(job,c){
   const g=glyphs.get(yn.id);if(options.mode!=='color'&&g){font(c,3.6,true);c.fillStyle=options.mode==='mono'?INK:contrast(yn.color);c.textAlign='center';c.fillText(g,x+2.5,yy+2.6);}
   font(c,2.8);c.fillStyle=INK;c.textAlign='left';c.fillText(`${yn.name}　${usage.get(yn.id)}目`,x+6.5,yy+2.6,chip-8);});
  y+=Math.ceil(Math.max(1,yarns.length)/perLine)*6.5;
- const notes=increases.map(inc=>[null,`${inc.code}：${inc.name}`]);if(job.noStitch)notes.push([NO_STITCH,'灰色のマス：目がない場所（まだ増やしていない目など）']);
+ const notes=increases.map(inc=>inc.glyph?[{glyph:inc.glyph},`＝${inc.name}`]:[null,`${inc.code}：${inc.name}`]);if(job.noStitch)notes.push([NO_STITCH,'灰色のマス：目がない場所（まだ増やしていない目など）']);
  if(notes.length){const half=usable/2;font(c,2.6);c.textAlign='left';
   notes.forEach(([swatch,text],i)=>{const x=m+(i%2)*half,yy=y+1.5+Math.floor(i/2)*5;let tx=x;
-   if(swatch){c.fillStyle=swatch;c.fillRect(x,yy-1.6,3.2,3.2);c.strokeStyle='#888888';c.lineWidth=.15;c.strokeRect(x,yy-1.6,3.2,3.2);tx=x+4.5;}
+   if(swatch?.glyph){const w=3.2*swatch.glyph.width;c.fillStyle='#ffffff';c.fillRect(x,yy-1.6,w,3.2);for(let i=0;i<swatch.glyph.width;i++)drawStitch(c,swatch.glyph.width>1?`${swatch.glyph.code}@${i}`:swatch.glyph.code,x+i*3.2,yy-1.6,3.2,3.2,INK);c.strokeStyle='#888888';c.lineWidth=.15;c.strokeRect(x,yy-1.6,w,3.2);tx=x+w+1.3;}
+   else if(swatch){c.fillStyle=swatch;c.fillRect(x,yy-1.6,3.2,3.2);c.strokeStyle='#888888';c.lineWidth=.15;c.strokeRect(x,yy-1.6,3.2,3.2);tx=x+4.5;}
    c.fillStyle=MUTED;c.fillText(text,tx,yy,half-2-(tx-x));});}
 }
 
@@ -69,7 +71,8 @@ function chart(job,c,page){
   const color=palette.get(id)||'#ffffff';c.fillStyle=options.mode==='mono'?'#ffffff':color;c.fillRect(px,py,cell,cell);
   const g=options.mode==='color'?'':glyphs.get(id)||'',ink=options.mode==='mono'?INK:contrast(color),inc=symbolAt(p,x,r);
   c.fillStyle=ink;c.textAlign='center';
-  if(inc){font(c,Math.min(cell*.42,3),true);c.fillText(inc,px+cell/2,py+cell*.58,cell*.92);if(g){font(c,cell*.34);c.textAlign='left';c.fillText(g,px+cell*.06,py+cell*.2);}}
+  if(inc&&drawStitch(c,inc,px,py,cell,cell,ink)){if(g){font(c,cell*.34);c.textAlign='left';c.fillText(g,px+cell*.06,py+cell*.2);}}
+  else if(inc){font(c,Math.min(cell*.42,3),true);c.fillText(inc,px+cell/2,py+cell*.58,cell*.92);if(g){font(c,cell*.34);c.textAlign='left';c.fillText(g,px+cell*.06,py+cell*.2);}}
   else if(g){font(c,cell*.7);c.fillText(g,px+cell/2,py+cell*.54);}
  }
  // Grid: hairlines per stitch, heavier every 10 stitches/rows by the printed numbers, repeat seams in red.

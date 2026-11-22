@@ -3,7 +3,10 @@
   "build": "51.1",
   "versionId": "8a8195da-e238-464b-9795-6b97270b92ad",
   "submissionId": "5c948d6d-6368-43d4-a808-8376b68d5585",
-  "state": "WAITING_FOR_REVIEW",
+  "state": "CANCELING",
   "releaseType": "AFTER_APPROVAL",
-  "submittedAt": "2026-11-22T21:52:22.524Z"
+  "submittedAt": "2026-11-22T21:52:22.524Z",
+  "versionState": "DEVELOPER_REJECTED",
+  "withdrawnAt": "2026-11-22T22:01:14.350Z",
+  "note": "Withdrawn by the owner: the next build converts the photo into an editable chart instead of counting on the photo."
 }

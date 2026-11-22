@@ -1,17 +1,11 @@
-import {blank} from './model.mjs';
-
-// A chart photographed from a book, used as-is for row counting. Nothing is read or redrawn: the page is only
-// flattened (perspective) and the row boundaries are found from the printed grid lines, so the band that marks the
-// current row sits on the book's own row. Deterministic and local; no OCR, no AI, no network.
+// Reading a chart photographed from a book: flatten the perspective from four corners, then find the printed grid
+// lines. A book page is rarely flat (it sags and curls toward the binding), so lines are tracked in strips and fitted
+// as a smooth surface over the page (fitPage); chart-convert.mjs uses them to read every cell. Deterministic and local;
+// no OCR, no AI, no network.
 //
-// Coordinates: quad corners are [tl,tr,br,bl] in source pixels, as the chart is read (top = last rows).
-// A page keeps a flattened JPEG and the grid rectangle inside it (0-1). A book page is rarely flat (it bends toward
-// the binding), so the rows are tracked in vertical strips: `strips` are the strip centres (0-1, image x) and
-// lines[s] the rows+1 boundaries in strip s (0-1, image y), lines[s][0] = lower edge of the page's first row,
-// lines[s][rows] = top edge. Between strips the boundaries are interpolated, so the band follows a bent row.
-// Physical row 1 is the bottom row, as everywhere else in the app.
-export const SCAN_MAX_PAGES=2,SCAN_MAX_ROWS=2000,SCAN_IMAGE_MAX=12000000,SCAN_LONG_SIDE=2400;
-export const SCAN_JOINS=Object.freeze({single:'1ページ',side:'左右のページに同じ段が続く',stack:'次のページに段が続く'});
+// Coordinates: quad corners are [tl,tr,br,bl] in source pixels, as the chart is read (top = last rows). Fitted lines are
+// {strips, lines}: strip centres (0-1, image x) and per strip the boundaries bottom-up (0-1, image y).
+export const SCAN_MAX_ROWS=2000,SCAN_LONG_SIDE=2400;
 // Margin kept around the grid (in grid widths / heights) so the book's row numbers stay visible.
 export const SCAN_MARGIN=Object.freeze({x:.12,y:.06});
 
@@ -57,12 +51,16 @@ export function rectify(rgba,srcW,srcH,quad,{width,height,margin=SCAN_MARGIN}={}
 
 export function grayscale(rgba,width,height){const g=new Float32Array(width*height);for(let i=0;i<g.length;i++){const a=rgba[i*4+3]/255;g[i]=(rgba[i*4]*.299+rgba[i*4+1]*.587+rgba[i*4+2]*.114)*a+255*(1-a);}return g;}
 
-/** Strength of a thin dark horizontal line at each image row, averaged over columns x0..x1. */
-export function lineProfile(gray,width,height,x0=0,x1=width){
- const out=new Float64Array(height),from=Math.max(0,Math.floor(x0)),to=Math.min(width,Math.ceil(x1)),n=Math.max(1,to-from);
+/**
+ * Strength of a thin dark horizontal line at each image row over columns x0..x1: the mean, or with `quantile` that
+ * share from the bottom of the per-column values. A printed grid line runs across the whole strip, a symbol stroke
+ * (a purl dash in every cell) only across part of it, so a low quantile keeps the grid lines and drops the symbols.
+ */
+export function lineProfile(gray,width,height,x0=0,x1=width,quantile=null){
+ const out=new Float64Array(height),from=Math.max(0,Math.floor(x0)),to=Math.min(width,Math.ceil(x1)),n=Math.max(1,to-from),vals=new Float64Array(n);
  for(let y=0;y<height;y++){let sum=0;
-  for(let x=from;x<to;x++){const v=gray[y*width+x];let best=0;for(const d of [1,2,3]){const a=gray[Math.max(0,y-d)*width+x],b=gray[Math.min(height-1,y+d)*width+x],r=Math.min(a,b)-v;if(r>best)best=r;}sum+=best;}
-  out[y]=sum/n;}
+  for(let x=from;x<to;x++){const v=gray[y*width+x];let best=0;for(const d of [1,2,3]){const a=gray[Math.max(0,y-d)*width+x],b=gray[Math.min(height-1,y+d)*width+x],r=Math.min(a,b)-v;if(r>best)best=r;}sum+=best;vals[x-from]=best;}
+  if(quantile===null)out[y]=sum/n;else{vals.sort();out[y]=vals[Math.min(n-1,Math.floor(n*quantile))];}}
  return out;
 }
 
@@ -93,9 +91,10 @@ export function estimateRows(profile,top,bottom){
  const typical=[...scores.map(s=>s[1])].sort((a,b)=>a-b)[Math.floor(scores.length/2)];
  if(best<3||best<peaks.length*.3||best<typical*2)return none;
  const pitch=scores.find(([,v])=>v>=best*.85)[0];
- let y=peaks.reduce((a,q)=>Math.abs(q-bottom)<Math.abs(a-bottom)?q:a,peaks[0]);if(Math.abs(y-bottom)>pitch/2)y=bottom;
+ // The bottom line: the line nearest the bottom edge, up to 3/4 of a row above it (a sagging page lifts the middle).
+ let y=bottom,near=Infinity;for(const q of peaks){const d=bottom-q;if(d>=-pitch/2&&d<=pitch*.75&&Math.abs(d)<near){near=Math.abs(d);y=q;}}
  const ys=[y];let local=pitch,found=0;
- while(ys.at(-1)-local>=top-local/2&&ys.length<=SCAN_MAX_ROWS){
+ while(ys.at(-1)-local>=top-local*.75&&ys.length<=SCAN_MAX_ROWS){
   const expected=ys.at(-1)-local;let next=null;for(const q of peaks)if(Math.abs(q-expected)<=local*.3&&(next===null||Math.abs(q-expected)<Math.abs(next-expected)))next=q;
   if(next!==null){found++;local=Math.max(pitch*.85,Math.min(pitch*1.15,local*.75+(ys.at(-1)-next)*.25));ys.push(next);}else ys.push(expected);
  }
@@ -129,12 +128,12 @@ export function fitLines(profile,top,bottom,rows,imageHeight){
 /** Vertical strips across the grid, about 80 px wide (4-24), each with its own line profile. */
 export function analyzePage(gray,width,height,grid){
  const left=grid.left*width,right=grid.right*width,n=Math.max(4,Math.min(24,Math.round((right-left)/80))),top=grid.top*height,bottom=grid.bottom*height,strips=[];
- for(let s=0;s<n;s++){const x0=left+(right-left)*s/n,x1=left+(right-left)*(s+1)/n,profile=lineProfile(gray,width,height,x0+2,x1-2);strips.push({center:(x0+x1)/2/width,profile,estimate:estimateRows(profile,top,bottom)});}
+ for(let s=0;s<n;s++){const x0=left+(right-left)*s/n,x1=left+(right-left)*(s+1)/n,profile=lineProfile(gray,width,height,x0+2,x1-2,.3);strips.push({center:(x0+x1)/2/width,profile,estimate:estimateRows(profile,top,bottom)});}
  // The row count most strips agree on, weighted by how clearly each strip shows it.
  // Counts one apart agree half (the top edge may fall either side of a line in a strip).
  const votes=new Map();for(const st of strips){const r=st.estimate.rows;if(!r)continue;for(const [k,w] of [[r,1],[r-1,.5],[r+1,.5]])votes.set(k,(votes.get(k)||0)+st.estimate.confidence*w);}
  let rows=null,score=0;for(const [r,v] of votes)if(v>score||(v===score&&r>rows)){rows=r;score=v;}
- return {width,height,top,bottom,strips,rows:score>=Math.max(1.2,n*.15)?rows:null,confidence:score/n};
+ return {width,height,top,bottom,left,right,strips,rows:score>=Math.max(1.2,n*.15)?rows:null,confidence:score/n};
 }
 
 /**
@@ -152,7 +151,46 @@ export function fitPage(analysis,rows){
  out[start]=own(start)||fit(start,even);
  for(let s=start-1;s>=0;s--)out[s]=own(s,out[s+1])||fit(s,out[s+1]);
  for(let s=start+1;s<strips.length;s++)out[s]=own(s,out[s-1])||fit(s,out[s-1]);
+ // The page bends smoothly (sag, curl toward the binding): fit the shift of the lines from even spacing as one smooth
+ // surface over the whole page, ignoring boundaries that sit on no printed line or disagree with the rest; snap again
+ // from that surface, and repeat with more freedom. A strip that locked onto the wrong line is pulled back.
+ if(pitch>=6&&strips.length>=3){
+  const X=strips.map(st=>st.center),x0=Math.min(...X),x1=Math.max(...X),U=X.map(x=>x1>x0?(x-x0)/(x1-x0)*2-1:0),T=even.map((_,i)=>i/rows*2-1);
+  const onLine=(s,y)=>{const p=strips[s].profile,k=Math.round(y);return Number.isFinite(level[s])&&[k-1,k,k+1].some(j=>j>=0&&j<p.length&&p[j]>=level[s]);};
+  let surface=null;
+  for(const deg of [1,2,3]){
+   const pts=[];out.forEach((ys,s)=>ys.forEach((y,i)=>{if(onLine(s,y))pts.push([U[s],T[i],y-even[i]]);}));
+   if(pts.length<(deg+1)**2*3)break;
+   const f=smoothSurface(pts,deg,Math.max(1.5,pitch*.25));if(!f)break;surface=f;
+   out.forEach((_,s)=>{const guess=even.map((y,i)=>y+surface(U[s],T[i]));out[s]=fit(s,guess);});
+  }
+  if(surface){out.forEach((ys,s)=>{out[s]=ys.map((y,i)=>{const g=even[i]+surface(U[s],T[i]);return onLine(s,y)?g+Math.max(-pitch*.2,Math.min(pitch*.2,y-g)):g;});});
+   // The grid's own edges, from the surface: beyond the outer strips the lines keep bending instead of staying flat.
+   if(analysis.left!==undefined&&x1>x0){const edge=x=>{const u=(x/analysis.width-x0)/(x1-x0)*2-1;return even.map((y,i)=>y+surface(u,T[i]));};
+    const xs=strips.map(st=>st.center),L=analysis.left/analysis.width,R=analysis.right/analysis.width;
+    return {strips:[L,...xs,R].map(x=>Math.round(x*1e5)/1e5),lines:[edge(analysis.left),...out,edge(analysis.right)].map(ys=>ys.map(y=>Math.round(y/height*1e5)/1e5))};}
+  }
+ }
  return {strips:strips.map(st=>Math.round(st.center*1e5)/1e5),lines:out.map(ys=>ys.map(y=>Math.round(y/height*1e5)/1e5))};
+}
+
+/**
+ * Least-squares polynomial surface d(u,t) of the given degree in each variable (u,t in -1..1) through points [u,t,d],
+ * refitted twice without the points further than `outlier` from it. Null when the system cannot be solved.
+ */
+function smoothSurface(points,deg,outlier){
+ const terms=[];for(let a=0;a<=deg;a++)for(let b=0;b<=deg;b++)terms.push([a,b]);
+ const basis=(u,t)=>terms.map(([a,b])=>u**a*t**b);let coef=null,use=points;
+ for(let round=0;round<3;round++){
+  const n=terms.length,A=Array.from({length:n},()=>new Float64Array(n+1));
+  for(const [u,t,d] of use){const v=basis(u,t);for(let i=0;i<n;i++){for(let j=0;j<n;j++)A[i][j]+=v[i]*v[j];A[i][n]+=v[i]*d;}}
+  for(let i=0;i<n;i++)A[i][i]+=1e-6;
+  for(let c=0;c<n;c++){let p=c;for(let r=c+1;r<n;r++)if(Math.abs(A[r][c])>Math.abs(A[p][c]))p=r;[A[c],A[p]]=[A[p],A[c]];if(Math.abs(A[c][c])<1e-12)return null;for(let r=0;r<n;r++)if(r!==c){const f=A[r][c]/A[c][c];for(let k=c;k<=n;k++)A[r][k]-=f*A[c][k];}}
+  coef=A.map((row,i)=>row[n]/row[i]);
+  const value=(u,t)=>basis(u,t).reduce((s,v,i)=>s+v*coef[i],0);
+  const next=points.filter(([u,t,d])=>Math.abs(value(u,t)-d)<=outlier);if(next.length<n*2)break;use=next;
+ }
+ return (u,t)=>basis(u,t).reduce((s,v,i)=>s+v*coef[i],0);
 }
 
 /** Boundaries of a page at image x (0-1), interpolated between strips. */
@@ -207,68 +245,3 @@ export function detectGrid(gray,width,height){
 
 /** Default corners when nothing is detected: an inset rectangle. */
 export const insetQuad=(width,height,k=.15)=>[[width*k,height*k],[width*(1-k),height*k],[width*(1-k),height*(1-k)],[width*k,height*(1-k)]];
-
-// ---------- the scanned project ----------
-
-const IMAGE=/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/;
-export const scanRows=scan=>scan.join==='stack'?scan.pages.reduce((n,pg)=>n+pg.rows,0):scan.pages[0].rows;
-
-export function validateScan(scan){
- const integer=(v,min,max)=>Number.isInteger(v)&&v>=min&&v<=max,unit=v=>typeof v==='number'&&v>=0&&v<=1;
- if(!scan||typeof scan!=='object'||scan.version!==1||!Object.hasOwn(SCAN_JOINS,scan.join)||!Array.isArray(scan.pages)||scan.pages.length<1||scan.pages.length>SCAN_MAX_PAGES||(scan.join==='single')!==(scan.pages.length===1))throw Error('撮影した編み図の情報が不正です');
- const pages=scan.pages.map(pg=>{
-  if(!pg||typeof pg.image!=='string'||pg.image.length>SCAN_IMAGE_MAX||!IMAGE.test(pg.image)||!integer(pg.width,8,8000)||!integer(pg.height,8,8000)||!integer(pg.rows,1,SCAN_MAX_ROWS))throw Error('撮影した編み図の画像が不正です');
-  const g=pg.grid;if(!g||![g.left,g.right,g.top,g.bottom].every(unit)||!(g.left<g.right&&g.top<g.bottom))throw Error('撮影した編み図の枠が不正です');
-  if(!Array.isArray(pg.strips)||pg.strips.length<1||pg.strips.length>24||!pg.strips.every(unit)||pg.strips.some((x,i)=>i&&!(x>pg.strips[i-1]))||!Array.isArray(pg.lines)||pg.lines.length!==pg.strips.length||pg.lines.some(ys=>!Array.isArray(ys)||ys.length!==pg.rows+1||!ys.every(unit)||ys.some((y,i)=>i&&!(y<ys[i-1]))))throw Error('撮影した編み図の段の線が不正です');
-  return {image:pg.image,width:pg.width,height:pg.height,rows:pg.rows,grid:{left:g.left,right:g.right,top:g.top,bottom:g.bottom},strips:[...pg.strips],lines:pg.lines.map(ys=>[...ys])};
- });
- if(scan.join==='side'&&pages[1].rows!==pages[0].rows)throw Error('左右のページの段数がそろっていません');
- const out={version:1,join:scan.join,pages};if(scanRows(out)>SCAN_MAX_ROWS)throw Error(`段数は${SCAN_MAX_ROWS}段までです`);return out;
-}
-
-/** A project whose chart is the photo. cells stay a 1-stitch column so every other part of the app keeps working. */
-export function scanProject(scan,name='本の編み図'){
- const s=validateScan(scan),rows=scanRows(s),p=blank(1,rows);
- p.name=String(name).trim().slice(0,100)||'本の編み図';p.yarns=[{id:0,name:'写真の編み図',color:'#f3ead9'}];p.cells=Array.from({length:rows},()=>[0]);p.showDividers=false;p.scan=s;return p;
-}
-
-/**
- * Where physical row `row` sits: [{page,xs,tops,bottoms,top,bottom}] in 0-1 image coordinates. xs run from the left
- * to the right edge of the page through the strip centres, so the band can follow a bent row; top/bottom are the
- * values at the middle of the grid. Left and right pages both show the row.
- */
-export function rowBands(scan,row){
- const band=(page,i)=>{const pg=scan.pages[page],xs=[0,...pg.strips,1],at=x=>linesAt(pg,x),mid=at((pg.grid.left+pg.grid.right)/2);
-  return {page,xs,tops:xs.map(x=>at(x)[i]),bottoms:xs.map(x=>at(x)[i-1]),top:mid[i],bottom:mid[i-1]};};
- if(scan.join!=='stack')return scan.pages.map((_,page)=>band(page,row));
- let first=1;for(const [page,pg] of scan.pages.entries()){if(row<first+pg.rows)return [band(page,row-first+1)];first+=pg.rows;}
- return [];
-}
-
-/**
- * Pages placed in one picture: left/right pages scaled to the same grid height, stacked pages to the same grid width
- * (the next page above, as the rows continue upward). Units: the first page's grid is 1000 high (side) or wide (stack).
- */
-export function scanLayout(scan){
- const pages=scan.pages,gap=24,out=[];
- if(scan.join==='stack'){
-  const scales=pages.map(pg=>1000/((pg.grid.right-pg.grid.left)*pg.width));let y=0;
-  for(let i=pages.length-1;i>=0;i--){const pg=pages[i],w=pg.width*scales[i],h=pg.height*scales[i];out[i]={x:-pg.grid.left*w,y,w,h};y+=h+gap;}
-  const minX=Math.min(...out.map(o=>o.x));for(const o of out)o.x-=minX;
- }else{
-  const scales=pages.map(pg=>1000/((pg.grid.bottom-pg.grid.top)*pg.height));let x=0;
-  pages.forEach((pg,i)=>{const w=pg.width*scales[i],h=pg.height*scales[i];out[i]={x,y:-pg.grid.top*h,w,h};x+=w+gap;});
-  const minY=Math.min(...out.map(o=>o.y));for(const o of out)o.y-=minY;
- }
- return {pages:out,width:Math.max(...out.map(o=>o.x+o.w)),height:Math.max(...out.map(o=>o.y+o.h))};
-}
-
-/** Physical row at layout point (x,y), or null. Outside a page, the nearest page is used (at its nearest x). */
-export function rowAtPoint(scan,layout,x,y){
- let page=0,dist=Infinity;layout.pages.forEach((o,i)=>{const d=x<o.x?o.x-x:x>o.x+o.w?x-o.x-o.w:0,dy=y<o.y?o.y-y:y>o.y+o.h?y-o.y-o.h:0;if(d+dy<dist){dist=d+dy;page=i;}});
- const o=layout.pages[page],pg=scan.pages[page],v=(y-o.y)/o.h,ys=linesAt(pg,Math.max(0,Math.min(1,(x-o.x)/o.w)));
- if(v>ys[0]||v<ys[pg.rows])return null;
- let local=1;while(local<pg.rows&&v<ys[local])local++;
- if(scan.join!=='stack')return local;
- return scan.pages.slice(0,page).reduce((n,q)=>n+q.rows,0)+local;
-}

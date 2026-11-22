@@ -1,6 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
-import {homography,checkQuad,flatSize,rectify,grayscale,lineProfile,estimateRows,fitLines,analyzePage,fitPage,linesAt,detectGrid,insetQuad,validateScan,scanProject,scanRows,rowBands,scanLayout,rowAtPoint,SCAN_MARGIN} from '../docs/iphone/app/scan-model.mjs';
-import * as M from '../docs/iphone/app/model.mjs';
+import {homography,checkQuad,flatSize,rectify,grayscale,lineProfile,estimateRows,fitLines,analyzePage,fitPage,linesAt,detectGrid,insetQuad,SCAN_MARGIN} from '../docs/iphone/app/scan-model.mjs';
 
 import {photograph,bulge} from './scan-fixture.mjs';
 
@@ -49,7 +48,7 @@ test('a bent page: each strip follows its own row lines, which even spacing cann
  const w=560,h=640,cols=30,rows=36,cell=14,bend=.6,photo=photograph(cols,rows,cell,QUAD,w,h,{bend,symbols:true}),flat=rectify(photo,w,h,QUAD),g=flat.grid;
  const a=analyzePage(grayscale(flat.data,flat.width,flat.height),flat.width,flat.height,g);assert.equal(a.rows,rows,'row count agreed by the strips');
  const fit=fitPage(a,rows),top=g.top*flat.height,bottom=g.bottom*flat.height,pitch=(bottom-top)/rows;
- assert.equal(fit.strips.length,a.strips.length);assert.ok(fit.lines.every(ys=>ys.length===rows+1));
+ assert.equal(fit.strips.length,a.strips.length+2,'the grid edges are added');assert.ok(fit.lines.every(ys=>ys.length===rows+1));
  // Truth: printed line i at chart x sits bulge(x) higher than the even position.
  const truth=(xNorm,i)=>{const cx=(xNorm-g.left)/(g.right-g.left)*cols*cell;return bottom-pitch*i-bulge(cx,cols*cell,cell,bend)*pitch/cell;};
  let worstEven=0;
@@ -74,51 +73,3 @@ test('the grid is found as the large web of lines, ignoring the title and the ro
  const paper=new Uint8ClampedArray(w*h*4).fill(235);assert.equal(detectGrid(grayscale(paper,w,h),w,h),null);
  const inset=insetQuad(100,200);assert.doesNotThrow(()=>checkQuad(inset,100,200));});
 
-// ---- the scanned project ----
-const JPEG='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==';
-const even=rows=>Array.from({length:rows+1},(_,i)=>.95-.9*i/rows);
-const page=(rows,extra={})=>({image:JPEG,width:600,height:800,rows,grid:{left:.1,right:.9,top:.05,bottom:.95},strips:[.3,.7],lines:[even(rows),even(rows)],...extra});
-
-test('a scanned project is a normal project: rows, counter, memo, JSON round trip',()=>{
- const p=scanProject({version:1,join:'single',pages:[page(24)]},'  セーターの前身頃 ');
- assert.equal(p.name,'セーターの前身頃');assert.equal(M.totalRows(p),24);assert.equal(p.columns,1);
- M.complete(p);M.complete(p);p.notes[3]='ここから模様';assert.equal(p.currentRow,3);assert.deepEqual(p.completedRows,[1,2]);
- const back=M.validate(JSON.parse(JSON.stringify(p)));assert.deepEqual(back.scan,p.scan);assert.equal(back.currentRow,3);assert.equal(back.notes[3],'ここから模様');
- M.previous(back);assert.equal(back.currentRow,2);
- M.changeDirection(back,true);assert.equal(back.currentRow,24,'top-down starts at the top row');});
-
-test('copies share the page images instead of duplicating them',()=>{
- const p=scanProject({version:1,join:'single',pages:[page(10)]}),q=M.clone(p);
- assert.equal(q.scan.pages[0].image,p.scan.pages[0].image);q.scan.pages[0].lines[0][1]=.5;assert.notEqual(p.scan.pages[0].lines[0][1],.5,'lines are copied');
- const sample=M.sample();assert.deepEqual(M.clone(sample),sample);});
-
-test('two pages: side by side share the rows, stacked pages add them up',()=>{
- const side={version:1,join:'side',pages:[page(30),page(30,{width:640})]},stack={version:1,join:'stack',pages:[page(30),page(20)]};
- assert.equal(scanRows(validateScan(side)),30);assert.equal(scanRows(validateScan(stack)),50);
- assert.throws(()=>validateScan({...side,pages:[page(30),page(29)]}),/段数がそろって/);
- assert.throws(()=>validateScan({version:1,join:'single',pages:[page(3),page(3)]}),/不正/);
- assert.throws(()=>validateScan({version:1,join:'stack',pages:[page(3),page(3),page(3)]}),/不正/);
- const bands=rowBands(side,1);assert.equal(bands.length,2);assert.ok(Math.abs(bands[0].bottom-.95)<1e-9&&bands[0].top<bands[0].bottom);
- assert.deepEqual(rowBands(stack,31).map(b=>b.page),[1]);assert.ok(Math.abs(rowBands(stack,31)[0].bottom-.95)<1e-9,'row 31 is the first row of the next page');
- assert.equal(M.totalRows(scanProject(stack)),50);});
-
-test('a band follows a bent row across the strips',()=>{
- const bent=even(10).map((y,i)=>i?y-.02:y),p={version:1,join:'single',pages:[page(10,{strips:[.2,.5,.8],lines:[even(10),bent,even(10)]})]},[b]=rowBands(p,3);
- assert.deepEqual(b.xs,[0,.2,.5,.8,1]);assert.ok(Math.abs(b.tops[2]-(even(10)[3]-.02))<1e-9&&Math.abs(b.tops[1]-even(10)[3])<1e-9,'the middle of the band is higher');
- const L=scanLayout(p),o=L.pages[0],y=o.y+(even(10)[3]-.015)*o.h;
- assert.equal(rowAtPoint(p,L,o.x+.2*o.w,y),4,'at the side that height is already row 4');assert.equal(rowAtPoint(p,L,o.x+.5*o.w,y),3,'in the raised middle it is still row 3');});
-
-test('layout: side pages share the grid height and row positions; stacked pages continue upward',()=>{
- const side={version:1,join:'side',pages:[page(30),page(30,{width:300,height:400})]},L=scanLayout(side);
- const gridTop=i=>L.pages[i].y+side.pages[i].grid.top*L.pages[i].h,gridH=i=>(side.pages[i].grid.bottom-side.pages[i].grid.top)*L.pages[i].h;
- assert.ok(Math.abs(gridTop(0)-gridTop(1))<1e-6&&Math.abs(gridH(0)-1000)<1e-6&&Math.abs(gridH(1)-1000)<1e-6);assert.ok(L.pages[1].x>L.pages[0].x+L.pages[0].w);
- for(const row of [1,15,30]){const o=L.pages[1],b=rowBands(side,row)[1];assert.equal(rowAtPoint(side,L,o.x+o.w/2,o.y+(b.top+b.bottom)/2*o.h),row);}
- const stack={version:1,join:'stack',pages:[page(30),page(20)]},S=scanLayout(stack);assert.ok(S.pages[1].y<S.pages[0].y,'the continuation page is drawn above');
- for(const row of [1,30,31,50]){const b=rowBands(stack,row)[0],o=S.pages[b.page];assert.equal(rowAtPoint(stack,S,o.x+o.w/2,o.y+(b.top+b.bottom)/2*o.h),row);}
- assert.equal(rowAtPoint(stack,S,10,S.pages[0].y+S.pages[0].h*.99),null,'below the grid is no row');});
-
-test('invalid scans are refused with Japanese messages',()=>{
- const bad=(change,re)=>assert.throws(()=>validateScan({version:1,join:'single',pages:[{...page(5),...change}]}),re);
- bad({image:'data:image/png;base64,AAAA'},/画像/);bad({image:'javascript:alert(1)'},/画像/);bad({rows:0},/画像/);
- bad({lines:[[.9,.8,.7,.6,.5],[.9,.8,.7,.6,.5]]},/段の線/);bad({lines:[[.9,.8,.8,.7,.6,.5],even(5)]},/段の線/);bad({lines:[even(5)]},/段の線/);bad({strips:[.7,.3]},/段の線/);bad({grid:{left:.5,right:.4,top:0,bottom:1}},/枠/);
- const p=scanProject({version:1,join:'single',pages:[page(5)]});assert.throws(()=>M.validate({...p,rows:6,cells:Array.from({length:6},()=>[0])}),/段数が合いません/);});

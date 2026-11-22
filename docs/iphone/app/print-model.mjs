@@ -1,4 +1,5 @@
 import {totalRows,totalColumns,colorAt,symbolAt,rowNumber,INCREASES} from './model.mjs';
+import {STITCHES,stitchPart} from './stitches.mjs';
 
 // Printing a chart: paper, page tiling and the per-yarn symbols that keep the colours readable in black and white.
 // All sizes are in millimetres; nothing here touches the DOM so it can be tested in Node.
@@ -25,11 +26,11 @@ export function yarnGlyphs(p){
  return new Map(used.map((y,i)=>[y.id,i<YARN_GLYPHS.length?YARN_GLYPHS[i]:String(i-YARN_GLYPHS.length+1)]));
 }
 
-/** Increase symbols that appear in the printed area, in the app's order. */
+/** Symbols that appear in the printed area, in the app's order: increases ({code,name}) then knitting symbols ({glyph}). */
 export function usedIncreases(p){
  const w=totalColumns(p),h=totalRows(p),seen=new Set();
- for(let r=0;r<h;r++)for(let x=0;x<w;x++){const s=symbolAt(p,x,r);if(s)seen.add(s);}
- return INCREASES.filter(i=>seen.has(i.code));
+ for(let r=0;r<h;r++)for(let x=0;x<w;x++){const s=symbolAt(p,x,r);if(s)seen.add(stitchPart(s)?.code??s);}
+ return [...INCREASES.filter(i=>seen.has(i.code)),...STITCHES.filter(s=>seen.has(s.code)).map(s=>({code:s.code,name:s.name,glyph:s}))];
 }
 
 /** Row notes for the printed rows, in knitting-row order: [{row (as numbered), text}]. */

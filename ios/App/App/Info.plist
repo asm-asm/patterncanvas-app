@@ -69,9 +69,9 @@
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
-	<string>写真から編み図をつくるときや、本の編み図を撮影して段数カウンターに使うときにカメラを使用します。撮影した画像はこの端末内で処理します。</string>
+	<string>写真から編み図をつくるときや、本の編み図を撮影して編み図に変換するときにカメラを使用します。撮影した画像はこの端末内で処理します。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>選択した写真を、この端末内で編み図に変換したり、段数カウンター用の編み図として使ったりするために使用します。</string>
+	<string>選択した写真や本の編み図の写真を、この端末内で編み図に変換するために使用します。</string>
 	<key>UIUserInterfaceStyle</key>
 	<string>Light</string>
 </dict>
