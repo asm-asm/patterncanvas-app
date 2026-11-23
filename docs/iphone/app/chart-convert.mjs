@@ -18,6 +18,25 @@ export const CELL=16;             // ink samples per cell side (the grid lines n
 /** Transposed copy of a grey image, so column lines can be found with the row-line code. */
 export function transpose(gray,width,height){const t=new Float32Array(width*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++)t[x*height+y]=gray[y*width+x];return t;}
 
+/**
+ * Bands across the whole grid with no stitch lines: where a book leaves rows out (「省略」: the middle of a ribbing or a
+ * plain stretch is skipped, sometimes over a caption or a grey band). Returns [[y0, y1], …] in image pixels, top first.
+ * A band must be at least half a stitch high and keep clear of the frame's top and bottom.
+ */
+export function findGaps(gray,width,height,grid,cols,analysis=null){
+ const x0=Math.round(grid.left*width)+2,x1=Math.round(grid.right*width)-2,top=Math.round(grid.top*height),bottom=Math.round(grid.bottom*height),pitch=(x1-x0)/Math.max(1,cols);
+ // Look only where the stitch lines run (from the stitch-line fit), so a caption printed in the band does not count.
+ const a=analysis??analyzeGrid(gray,width,height,grid),fit=fitPage(a.cols,cols),lines=new Float32Array(height);
+ for(let y=top;y<bottom;y++){const xs=linesAt(fit,y/height);let n=0;for(let j=1;j<cols;j++){const x=Math.round(xs[j]*width);let hit=false;
+   for(let d=-2;d<=2&&!hit;d++){const at=x+d;if(at<2||at>=width-2)continue;const v=gray[y*width+at];if(Math.min(gray[y*width+at-2],gray[y*width+at+2])-v>14)hit=true;}if(hit)n++;}
+  lines[y]=n/Math.max(1,cols-1);}
+ // Stitch lines show in nearly every image row of the grid; where they stop across the whole width, rows are left out.
+ const typical=[...lines.slice(top,bottom)].sort((p,q)=>p-q)[Math.floor((bottom-top)*.6)]||0,gaps=[];let start=-1;
+ for(let y=top;y<=bottom;y++){const quiet=y<bottom&&(lines[Math.max(top,y-1)]+lines[y]+lines[Math.min(bottom-1,y+1)])/3<typical*.55; // a caption crosses some lines, the grid all
+  if(quiet&&start<0)start=y;if(!quiet&&start>=0){if(y-start>=pitch*.5&&start-top>pitch*.8&&bottom-y>pitch*.8)gaps.push([start,y]);start=-1;}}
+ return gaps;
+}
+
 /** Row lines (per vertical strip) and stitch lines (per horizontal band) of a flattened page. */
 export function analyzeGrid(gray,width,height,grid){
  const rows=analyzePage(gray,width,height,grid);
@@ -221,6 +240,7 @@ export const hex=rgb=>'#'+rgb.map(v=>Math.max(0,Math.min(255,Math.round(v))).toS
  * names: group index → symbol code or null (knit). A cable named on a group is placed with that cell as its left end.
  */
 export function buildChart({pages,join,shapeOf:groupOf,colourOf,names,codeOf,colours,name='本の編み図'}){
+ if(codeOf)return buildFromParts({pages,join,codeOf,colourOf,colours,name});
  const rows=join==='side'?pages[0].R:pages.reduce((n,pg)=>n+pg.R,0),cols=join==='side'?pages.reduce((n,pg)=>n+pg.C,0):Math.max(...pages.map(pg=>pg.C));
  if(rows<1||cols<1||rows>2000||cols>2000)throw Error('編み図は最大2000目・2000段です');
  const p=blank(cols,rows);p.name=String(name).trim().slice(0,100)||'本の編み図';
@@ -229,8 +249,6 @@ export function buildChart({pages,join,shapeOf:groupOf,colourOf,names,codeOf,col
  let rowOffset=0,colOffset=0;
  pages.forEach((pg,n)=>{
   for(let r=0;r<pg.R;r++)for(let c=0;c<pg.C;c++){const k=r*pg.C+c;if(pg.outside[k])continue;p.cells[rowOffset+r][colOffset+c]=colourOf(n,k);}
-  // Either every cell's code is given (codeOf: a cell code, a cable part CODE@i, or null), or a symbol per shape group.
-  if(codeOf){for(let r=0;r<pg.R;r++)for(let c=0;c<pg.C;c++){const k=r*pg.C+c;if(pg.outside[k])continue;const code=codeOf(n,k);if(code&&(stitchPart(code)||stitchDef(code)?.width===1||!stitchDef(code)))p.symbols[rowOffset+r][colOffset+c]=code;}if(join==='side')colOffset+=pg.C;else rowOffset+=pg.R;return;}
   for(let r=0;r<pg.R;r++)for(let c=0;c<pg.C;c++){const k=r*pg.C+c,R=rowOffset+r,X=colOffset+c;if(pg.outside[k]||p.symbols[R][X]!==null)continue;
    const code=names[groupOf(n,k)]??null;if(!code)continue;const def=stitchDef(code);if(!def)continue;
    if(def.width===1){p.symbols[R][X]=code;continue;}
@@ -238,5 +256,46 @@ export function buildChart({pages,join,shapeOf:groupOf,colourOf,names,codeOf,col
    parts.forEach((part,i)=>{p.symbols[R][X+i]=part;});c+=parts.length-1;}
   if(join==='side')colOffset+=pg.C;else rowOffset+=pg.R;
  });
+ p.showDividers=true;return p;
+}
+
+/**
+ * The rows a book left out (「省略」) between two blocks: the rows just below repeat. The repeat is the shortest that
+ * the rows below already follow (a 1-row purl stretch, a 2-row ribbing, …, up to 8 rows), judged on their top rows.
+ * rows: bottom first, each [{c,s}] (yarn, symbol). Returns `count` new rows.
+ */
+export function fillOmitted(rows,count){
+ if(!count||!rows.length)return [];
+ const same=(a,b)=>a.length===b.length&&a.every((x,i)=>x.c===b[i].c&&x.s===b[i].s),n=rows.length;
+ let period=Math.min(n,8),fewest=Infinity;
+ for(let p=1;p<=Math.min(8,n);p++){const checks=Math.min(n-p,2*p);if(!checks)continue;let miss=0;for(let t=0;t<checks;t++)if(!same(rows[n-1-t],rows[n-1-t-p]))miss++;const rate=miss/checks;if(rate<fewest-1e-9){fewest=rate;period=p;}}
+ return Array.from({length:count},(_,f)=>rows[n-period+(f%period)].map(x=>({...x})));
+}
+
+/**
+ * The chart from pages, each made of blocks (`parts`, bottom first, with `omits[i]` rows left out between part i and
+ * part i+1; a page without parts is one block). Pages join side by side (same rows) or upward. codeOf(n,k,p) and
+ * colourOf(n,k,p) give a cell's symbol (a code, a cable part CODE@i, or null) and yarn.
+ */
+function buildFromParts({pages,join,codeOf,colourOf,colours,name}){
+ const pageRows=pages.map((pg,n)=>{
+  const parts=pg.parts||[pg],C=Math.max(...parts.map(q=>q.C)),rows=[];
+  parts.forEach((part,p)=>{
+   if(p>0)rows.push(...fillOmitted(rows,pg.omits?.[p-1]||0));
+   for(let r=0;r<part.R;r++){const row=[];for(let c=0;c<C;c++){const k=r*part.C+c;
+     if(c>=part.C||part.outside[k]){row.push({c:null,s:null});continue;}
+     const code=codeOf(n,k,p);row.push({c:colourOf(n,k,p),s:code&&(stitchPart(code)||stitchDef(code)?.width===1||!stitchDef(code))?code:null});}
+    rows.push(row);}
+  });
+  return {rows,C};
+ });
+ if(join==='side'&&pageRows.some(pr=>pr.rows.length!==pageRows[0].rows.length))throw Error(`左右のページの段数がそろっていません（${pageRows.map(pr=>pr.rows.length).join('段と')}段）。段数や省略された段数を確かめてください。`);
+ const rows=join==='side'?pageRows[0].rows.length:pageRows.reduce((n,pr)=>n+pr.rows.length,0),cols=join==='side'?pageRows.reduce((n,pr)=>n+pr.C,0):Math.max(...pageRows.map(pr=>pr.C));
+ if(rows<1||cols<1||rows>2000||cols>2000)throw Error('編み図は最大2000目・2000段です');
+ const p=blank(cols,rows);p.name=String(name).trim().slice(0,100)||'本の編み図';
+ p.yarns=colours.map((c,id)=>({id,name:c.name||`色${id+1}`,color:c.color}));
+ p.cells=Array.from({length:rows},()=>Array(cols).fill(null));p.symbols=Array.from({length:rows},()=>Array(cols).fill(null));p.format='patterncanvas-web-3';
+ let r0=0,c0=0;
+ for(const pr of pageRows){pr.rows.forEach((row,r)=>row.forEach((x,c)=>{if(x.c===null)return;p.cells[r0+r][c0+c]=x.c;p.symbols[r0+r][c0+c]=x.s;}));if(join==='side')c0+=pr.C;else r0+=pr.rows.length;}
  p.showDividers=true;return p;
 }

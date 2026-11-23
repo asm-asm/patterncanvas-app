@@ -49,6 +49,18 @@ export function rectify(rgba,srcW,srcH,quad,{width,height,margin=SCAN_MARGIN}={}
  return {data:out,width:size.width,height:size.height,grid:size.grid};
 }
 
+/**
+ * A part of the flattened page (x0..x1, y0..y1 in pixels of a flatW x flatH flattening) as grey, k times denser, read
+ * straight from the photo: small print (row numbers) keeps the photo's own detail instead of the flattened image's.
+ */
+export function flatRegion(rgba,srcW,srcH,quad,flatW,flatH,{x0,x1,y0,y1},k,margin=SCAN_MARGIN){
+ const map=homography(quad),w=Math.max(1,Math.round((x1-x0)*k)),h=Math.max(1,Math.round((y1-y0)*k)),gray=new Float32Array(w*h);
+ for(let y=0;y<h;y++){const v=((y0+(y+.5)/k)/flatH)*(1+2*margin.y)-margin.y;
+  for(let x=0;x<w;x++){const u=((x0+(x+.5)/k)/flatW)*(1+2*margin.x)-margin.x,[sx,sy]=map(u,v),fx=Math.max(0,Math.min(srcW-1.001,sx-.5)),fy=Math.max(0,Math.min(srcH-1.001,sy-.5)),ix=Math.floor(fx),iy=Math.floor(fy),ax=fx-ix,ay=fy-iy;
+   let s=0;for(const [dx,dy,wt] of [[0,0,(1-ax)*(1-ay)],[1,0,ax*(1-ay)],[0,1,(1-ax)*ay],[1,1,ax*ay]]){const i=((iy+dy)*srcW+ix+dx)*4;s+=wt*(rgba[i]*.299+rgba[i+1]*.587+rgba[i+2]*.114);}gray[y*w+x]=s;}}
+ return {gray,width:w,height:h};
+}
+
 export function grayscale(rgba,width,height){const g=new Float32Array(width*height);for(let i=0;i<g.length;i++){const a=rgba[i*4+3]/255;g[i]=(rgba[i*4]*.299+rgba[i*4+1]*.587+rgba[i*4+2]*.114)*a+255*(1-a);}return g;}
 
 /**
