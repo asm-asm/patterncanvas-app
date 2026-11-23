@@ -16,8 +16,8 @@ export const rowCompleted=()=>window.haptics=(window.haptics||0)+1;
 export const exportProject=async(data,name)=>{window.shared={data,name};};
 export const prepareOffline=()=>document.querySelector('#offline-state').textContent='初回からオフラインで使えます';
 `}));
-// A book page with a 24 x 30 chart (purl dashes, crosses, a shaded block), photographed at an angle on a sagging page.
-const W=560,H=640,QUAD=[[62,48],[505,70],[520,598],[40,575]],rgba=photograph(24,30,20,QUAD,W,H,{shading:true,bend:.4});
+// A book page with a 24 x 30 chart, photographed at an angle.
+const W=560,H=640,QUAD=[[62,48],[505,70],[520,598],[40,575]],rgba=photograph(24,30,20,QUAD,W,H);
 const photo=await sharp(Buffer.from(rgba.buffer),{raw:{width:W,height:H,channels:4}}).jpeg({quality:92}).toBuffer();
 const page=await context.newPage(),errors=[],remote=[];page.on('dialog',d=>d.accept());page.on('pageerror',e=>errors.push(e.message));
 page.on('request',r=>{if(!/^(http:\/\/127\.0\.0\.1:4175|blob:http:\/\/127\.0\.0\.1:4175\/|data:)/.test(r.url()))remote.push(r.url());});
@@ -27,67 +27,83 @@ async function photographPage(){
  await page.locator('#scan-library').setInputFiles({name:'chart.jpg',mimeType:'image/jpeg',buffer:photo});
  await page.locator('#scan-step-corners:not([hidden])').waitFor();await page.waitForTimeout(100);
  assert.equal(await page.locator('#scan-corners-error').textContent(),'','grid corners found automatically');
- await page.locator('#scan-flatten').click();await page.locator('#scan-step-grid:not([hidden])').waitFor();await page.locator('#scan-page-done:not([disabled])').waitFor();
 }
 try{
  await page.goto('http://127.0.0.1:4175/');await page.locator('#chart').waitFor();
  await page.locator('[data-view=settings]').click();
  await page.locator('#scan-open').click();await page.locator('#scan-dialog[open]').waitFor();
+ assert.equal(await page.locator('#scan-page-label').textContent(),'1ページ目');
  assert.equal(await page.locator('#scan-camera').getAttribute('capture'),'environment','camera button opens the camera');
- // Corners: a swapped corner is refused with a clear message; auto fit restores it.
- await page.locator('#scan-library').setInputFiles({name:'chart.jpg',mimeType:'image/jpeg',buffer:photo});await page.locator('#scan-step-corners:not([hidden])').waitFor();await page.waitForTimeout(100);
- await shot('1-corners');
+ await photographPage();await shot('1-corners');
+ // Dragging the top-left handle past the bottom-right corner is refused with a clear message; auto fit restores it.
  const box=await page.locator('#scan-corners').boundingBox(),k=Math.min(box.width/W,box.height/H),ox=box.x+(box.width-W*k)/2,oy=box.y+(box.height-H*k)/2;
- await page.locator('#scan-corners').evaluate((el,[from,to])=>{const ev=(type,[x,y])=>el.dispatchEvent(new PointerEvent(type,{pointerId:5,clientX:x,clientY:y,bubbles:true,pointerType:'touch',isPrimary:true}));ev('pointerdown',from);ev('pointermove',to);ev('pointerup',to);},[[ox+QUAD[0][0]*k,oy+QUAD[0][1]*k],[ox+540*k,oy+620*k]]);
+ const drag=async(from,to)=>page.locator('#scan-corners').evaluate((el,[from,to])=>{const ev=(type,[x,y])=>el.dispatchEvent(new PointerEvent(type,{pointerId:5,clientX:x,clientY:y,bubbles:true,pointerType:'touch',isPrimary:true}));ev('pointerdown',from);ev('pointermove',[(from[0]+to[0])/2,(from[1]+to[1])/2]);ev('pointermove',to);ev('pointerup',to);},[from,to]);
+ await drag([ox+QUAD[0][0]*k,oy+QUAD[0][1]*k],[ox+540*k,oy+620*k]);
  await page.locator('#scan-flatten').click();assert.match(await page.locator('#scan-corners-error').textContent(),/順番|一直線/);
- await page.locator('#scan-detect').click();await page.locator('#scan-flatten').click();await page.locator('#scan-step-grid:not([hidden])').waitFor();await page.locator('#scan-page-done:not([disabled])').waitFor();
- // Grid: both counts read from the lines; the straightened page is shown.
- assert.equal(await page.locator('#scan-rows').inputValue(),'30');assert.equal(await page.locator('#scan-cols').inputValue(),'24');assert.match(await page.locator('#scan-detected').textContent(),/30段・24目と読み取りました/);
- await shot('2-grid');
- await page.locator('#scan-cols-more').click();assert.equal(await page.locator('#scan-cols').inputValue(),'25');await page.locator('#scan-cols-less').click();await page.locator('#scan-page-done:not([disabled])').waitFor();
- await page.locator('#scan-page-done').click();await page.locator('#scan-step-pages:not([hidden])').waitFor();
- assert.equal(await page.locator('#scan-summary').textContent(),'1ページ：24目 × 30段');
- // Symbols and colours.
- await page.locator('#scan-to-symbols').click();await page.locator('#scan-step-symbols:not([hidden])').waitFor();
- const groups=page.locator('#scan-groups .scan-group');assert.ok(await groups.count()>=3,'blank + at least two shapes');
- assert.match(await groups.first().textContent(),/記号のないマス/);assert.equal(await groups.first().locator('select').inputValue(),'');
- assert.match(await page.locator('#scan-result').textContent(),/^24目 × 30段・2色。「？」のマス/);
- // Name the two biggest shapes; the preview and the counts follow.
- await groups.nth(1).locator('select').selectOption('P');await groups.nth(2).locator('select').selectOption('TBL');
- const others=await groups.count();for(let i=3;i<others;i++)await groups.nth(i).locator('select').selectOption('P');
- assert.match(await page.locator('#scan-result').textContent(),/すべてのマスに記号が入りました/);
- assert.ok((await page.locator('#scan-preview').boundingBox()).height>200,'chart preview drawn');
- await page.locator('#scan-colour-count').selectOption('1');assert.match(await page.locator('#scan-result').textContent(),/・1色。/);assert.equal(await page.locator('#scan-colours label').count(),1);
- await page.locator('#scan-colour-count').selectOption('auto');assert.equal(await page.locator('#scan-colours label').count(),2);
- await shot('3-symbols');
+ await page.locator('#scan-detect').click();assert.match(await page.locator('#scan-corners-error').textContent(),/合わせました/);
+ await page.locator('#scan-flatten').click();await page.locator('#scan-step-rows:not([hidden])').waitFor();
+ assert.equal(await page.locator('#scan-rows').inputValue(),'30','30 rows read from the grid lines');assert.match(await page.locator('#scan-detected').textContent(),/30段と読み取りました/);
+ await shot('2-rows');
+ await page.locator('#scan-rows-more').click();assert.equal(await page.locator('#scan-rows').inputValue(),'31');await page.locator('#scan-rows-less').click();
+ await page.locator('#scan-page-done').click();await page.locator('#scan-step-done:not([hidden])').waitFor();
+ assert.equal(await page.locator('#scan-summary').textContent(),'1ページ・30段');
+ // The right-hand page of the spread: same rows, so the count is fixed to the left page.
+ await page.locator('#scan-add-side').click();assert.equal(await page.locator('#scan-page-label').textContent(),'2ページ目（右のページ）');
+ await photographPage();await page.locator('#scan-flatten').click();await page.locator('#scan-step-rows:not([hidden])').waitFor();
+ assert.equal(await page.locator('#scan-rows').inputValue(),'30');assert(await page.locator('#scan-rows').isDisabled());
+ await page.locator('#scan-page-done').click();await page.locator('#scan-step-done:not([hidden])').waitFor();
+ assert.match(await page.locator('#scan-summary').textContent(),/^左右2ページ・30段/);assert(await page.locator('#scan-add-page').isHidden());
+ await shot('3-done');
  for(const [width,height] of [[320,568],[844,390],[768,1024]]){await page.setViewportSize({width,height});const b=await page.locator('#scan-start').boundingBox();assert(b&&b.x>=0&&b.x+b.width<=width,'start button on screen');}
  await page.setViewportSize({width:390,height:844});
  await page.locator('#scan-name').fill('テストのセーター');await page.locator('#scan-start').click();
  await page.locator('#scan-dialog:not([open])').waitFor({state:'attached'});
- // The result is an ordinary chart: editable cells, symbols, two yarns, the usual counter.
- let saved=await read();assert.equal(saved.name,'テストのセーター');assert.equal(saved.columns,24);assert.equal(saved.rows,30);assert.equal(saved.yarns.length,2);assert.equal(saved.scan,undefined);
- const symbols=saved.symbols.flat();assert.ok(symbols.filter(s=>s==='P').length>50&&symbols.filter(s=>s==='TBL').length>20&&!symbols.includes('UNK'));
- assert.ok(saved.cells.flat().filter(c=>c===1).length>100,'shaded block is the second yarn');
- assert(await page.locator('#chart-panel').isVisible());assert(await page.locator('#preview-panel').isVisible());
- assert.match(await page.locator('#message').textContent(),/本の編み図を取り込みました/);
- await page.locator('#complete').click();saved=await read();assert.deepEqual(saved.completedRows,[1]);
- await shot('4-chart');
- // The symbol tool offers the knitting symbols.
- assert.ok(await page.locator('#stitch-symbol option[value="RC2"]').count()===1);
- // A spread: the left page added after the right one; the counts of the second page follow the first.
+ // Counting on the photo.
+ assert(await page.locator('#scan-panel').isVisible());assert(await page.locator('#chart-panel').isHidden());assert(await page.locator('#preview-panel').isHidden());
+ assert.equal(await page.locator('#completed').textContent(),'完了 0 / 30段');assert.equal(await page.locator('#project-name').textContent(),'テストのセーター');
+ await page.locator('#complete').click();await page.locator('#complete').click();await page.waitForTimeout(100);
+ let saved=await read();assert.equal(saved.currentRow,3);assert.deepEqual(saved.completedRows,[1,2]);assert.equal(saved.scan.join,'side');assert.equal(saved.scan.pages.length,2);assert.match(saved.scan.pages[0].image,/^data:image\/jpeg;base64,/);
+ assert.equal(await page.evaluate(()=>window.haptics),2);
+ await shot('4-counter');
+ // Tap the gutter row numbers to choose a row; drags and taps on the photo never change the row.
+ await page.locator('#scan-chart').evaluate(e=>e.scrollIntoView({block:'center'}));await page.waitForTimeout(100);const chart=await page.locator('#scan-chart').boundingBox();
+ await page.touchscreen.tap(chart.x+chart.width/2,chart.y+chart.height/2);await page.waitForTimeout(100);assert.equal((await read()).currentRow,3,'tapping the photo keeps the row');
+ const rowAt=async y=>{await page.touchscreen.tap(chart.x+20,y);await page.waitForTimeout(100);return (await read()).currentRow;};
+ assert.equal(await page.locator('#scan-zoom-label').textContent()!=='100%',true,'counting view is zoomed in past the whole-spread view');
+ const upper=await rowAt(chart.y+chart.height*.3),lower=await rowAt(chart.y+chart.height*.7);
+ assert(upper>lower,`a higher row number sits higher on the page (${upper} > ${lower})`);
+ assert.equal(await page.locator('#choose-row').evaluate(e=>e.firstChild.textContent),String(lower));
+ // Zoom buttons and pinch.
+ const zoom0=await page.locator('#scan-zoom-label').textContent();await page.locator('#scan-zoom-in').click();assert.notEqual(await page.locator('#scan-zoom-label').textContent(),zoom0);
+ await page.locator('#scan-fit').click();assert.equal(await page.locator('#scan-zoom-label').textContent(),'100%');
+ // Settings hide what a photo cannot use.
+ await page.locator('[data-view=settings]').click();
+ assert(await page.locator('#apply-repeats').isHidden());assert(await page.locator('#print-open').isHidden());assert(await page.locator('#yarn-list').isHidden());assert(await page.locator('[data-view=preview]').isHidden());
+ assert(await page.locator('.scan-only').isVisible());
+ // Restart: the photo project comes back as it was.
+ await page.reload();await page.locator('body.scan-mode').waitFor({state:'attached'});assert.equal(await page.locator('#scan-panel').getAttribute('hidden'),null);
+ assert.equal(await page.locator('#completed').textContent(),'完了 2 / 30段');
+ await page.locator('[data-view=both]').click();await page.waitForTimeout(300);await shot('5-reloaded');
+ // A normal chart from the settings brings the editor back.
+ await page.locator('[data-view=settings]').click();await page.locator('#new-project').click();await page.waitForTimeout(200);
+ assert(await page.locator('#chart-panel').isVisible());assert(await page.locator('#scan-panel').isHidden());assert.equal((await read()).scan,undefined);
+ // A second project: the left page added after the right one goes first; a block above in the same photo continues the rows.
  await page.locator('[data-view=settings]').click();await page.locator('#scan-open').click();await page.locator('#scan-dialog[open]').waitFor();
- await photographPage();await page.locator('#scan-page-done').click();await page.locator('#scan-step-pages:not([hidden])').waitFor();
- await page.locator('#scan-add-left').click();assert.equal(await page.locator('#scan-page-label').textContent(),'2ページ目（左のページ）');
- await photographPage();assert(await page.locator('#scan-rows').isDisabled());assert.match(await page.locator('#scan-detected').textContent(),/もう片方のページと同じ30段/);
- await page.locator('#scan-page-done').click();await page.locator('#scan-step-pages:not([hidden])').waitFor();assert.match(await page.locator('#scan-summary').textContent(),/^左右2ページ：48目 × 30段/);
- await page.locator('#scan-remove-page').click();assert.equal(await page.locator('#scan-summary').textContent(),'1ページ：24目 × 30段');
+ await photographPage();await page.locator('#scan-flatten').click();await page.locator('#scan-step-rows:not([hidden])').waitFor();await page.locator('#scan-rows').fill('30');await page.locator('#scan-page-done').click();
+ await page.locator('#scan-step-done:not([hidden])').waitFor();assert(await page.locator('#scan-add-same').isVisible());
  await page.locator('#scan-add-same').click();await page.locator('#scan-step-corners:not([hidden])').waitFor();assert.equal(await page.locator('#scan-page-label').textContent(),'2ページ目（段の続き）');
- await page.locator('#scan-detect').click();await page.locator('#scan-flatten').click();await page.locator('#scan-page-done:not([disabled])').waitFor();await page.locator('#scan-page-done').click();
+ await page.locator('#scan-detect').click();await page.locator('#scan-flatten').click();await page.locator('#scan-step-rows:not([hidden])').waitFor();assert(!await page.locator('#scan-rows').isDisabled());
+ await page.locator('#scan-rows').fill('30');await page.locator('#scan-page-done').click();await page.locator('#scan-step-done:not([hidden])').waitFor();
  assert.match(await page.locator('#scan-summary').textContent(),/30段＋30段＝60段/);
- await page.locator('#scan-cancel').click();
- // Undo returns to the converted chart after a new blank one.
- await page.locator('#new-project').click();await page.waitForTimeout(200);assert.equal((await read()).rows,20);
- await page.locator('[data-view=both]').click();await page.locator('#undo').click();await page.waitForTimeout(200);assert.equal((await read()).name,'テストのセーター');
+ await page.locator('#scan-remove-page').click();assert.equal(await page.locator('#scan-summary').textContent(),'1ページ・30段');
+ await page.locator('#scan-add-left').click();assert.equal(await page.locator('#scan-page-label').textContent(),'2ページ目（左のページ）');
+ await photographPage();await page.locator('#scan-flatten').click();await page.locator('#scan-step-rows:not([hidden])').waitFor();assert.match(await page.locator('#scan-detected').textContent(),/もう片方のページと同じ30段/);
+ await page.locator('#scan-page-done').click();await page.locator('#scan-step-done:not([hidden])').waitFor();assert.match(await page.locator('#scan-summary').textContent(),/^左右2ページ/);
+ await page.locator('#scan-start').click();await page.waitForTimeout(200);
+ const left=(await read()).scan;assert.equal(left.join,'side');assert.equal(left.pages.length,2);assert.ok(left.pages.every(pg=>pg.strips.length>=4&&pg.lines.length===pg.strips.length&&pg.lines.every(ys=>ys.length===31)),'rows tracked in strips');
+ await page.locator('[data-view=settings]').click();await page.locator('#new-project').click();await page.waitForTimeout(200);
+ // Undo goes back to the photo project.
+ await page.locator('#undo').click();await page.waitForTimeout(200);assert(await page.locator('#scan-panel').isVisible());assert.equal((await read()).scan.pages.length,2);
  assert.deepEqual(errors,[]);assert.deepEqual(remote,[]);
  console.log('native scan UI: ok');
 }finally{await browser.close();}

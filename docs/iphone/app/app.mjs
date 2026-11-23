@@ -10,11 +10,12 @@ import {setupGuide} from './guide.mjs';
 import {setupYoke} from './yoke-import.mjs';
 import {setupPrint} from './print-import.mjs';
 import {setupScanImport} from './scan-import.mjs';
-import {STITCHES} from './stitches.mjs';
+import {drawScan,fitView,readableView,focusRow,rowAtScreen,zoomGestures,SCAN_GUTTER} from './scan-draw.mjs';
+import {scanLayout} from './scan-model.mjs';
 const $=id=>document.getElementById(id),KEY='patterncanvas-iphone-v1';
 let p=M.sample(),yarn=1,tool='pen',selection=null,clipboard=null,undo=[],redo=[],mode='both',memoRow=1,sourceImage=null;
 const chartView={cell:24,x:CHART_GUTTER,y:CHART_HEADER,numberFromRight:false},previewView={cell:12,x:0,y:0};
-let countedRun=null;
+let countedRun=null;const scanView={scale:0,x:0,y:0};
 let locked=false,readability={color:'#8d1735',width:4};
 try{locked=await Platform.readLock();const saved=JSON.parse(localStorage.getItem('patterncanvas-readability')||'{}');if(/^#[0-9a-f]{6}$/i.test(saved.color))readability.color=saved.color;if([2,4,6].includes(saved.width))readability.width=saved.width;}catch{}
 try{chartView.numberFromRight=localStorage.getItem('patterncanvas-number-from-right')==='true';}catch{}
@@ -27,16 +28,17 @@ function save(){if(!canSave){message('元の保存データを保護していま
 function saveFailed(){$('save-state').textContent='保存できません';message('端末内に保存できません。作品を書き出して保管してください。');}
 function history(before){if(!Access.canUse()){p=before;render();return;}if(JSON.stringify(before)===JSON.stringify(p))return;undo.push(before);while(undo.length>1&&(undo.length>40||undo.reduce((n,item)=>n+item.rows*item.columns,0)>2000000))undo.shift();redo=[];save();}
 function change(fn){finishRecolor();if(!Access.requireUse())return;countedRun=null;const before=M.clone(p);try{fn();history(before);render();}catch(e){p=before;message(e.message);render();}}
-function controls(){if(!locked)countedRun=null;$('run-count').hidden=!locked;$('run-count').textContent=countedRun?`${M.rowNumber(p,countedRun.row+1)}段目 · ${p.yarns.find(y=>y.id===countedRun.id)?.name||'毛糸'}：${countedRun.count}目連続（左から${countedRun.left+1}〜${countedRun.right+1}マス）`:'色のマスをタップすると、横に連続する目数を表示します。';$('symbol-tools').hidden=locked||tool!=='symbol';$('column-numbering').value=(p.flatKnitting?M.knittingSide(p).numberFromRight:chartView.numberFromRight)?'right':'left';$('column-numbering').disabled=p.flatKnitting;$('palette').hidden=locked;$('tools').hidden=locked;document.querySelector('.flip-row').hidden=locked;document.querySelectorAll('[data-tool]').forEach(b=>b.disabled=locked&&b.dataset.tool!=='pan');for(const id of ['flip-h','flip-v','clear','copy','move','stitch-edit','add-color','new-project','apply-repeats','image-file','photo-file','yoke-open','text-open','padding-open','import','scan-open'])$(id).disabled=locked;$('chart-lock').setAttribute('aria-pressed',String(locked));$('chart-lock').textContent=locked?'ロック中 · 解除する':'編み図をロック';$('chart-panel').classList.toggle('chart-locked',locked);$('lock-hint').textContent=locked?'ロック中：色をタップして目数を確認。1本指のドラッグで移動できます。':'編集できます。編むときはロックすると誤タップを防げます。';document.querySelectorAll('[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===tool);b.setAttribute('aria-pressed',String(b.dataset.tool===tool));});$('selection-tools').hidden=!selection;$('undo').disabled=locked||!undo.length;$('redo').disabled=locked||!redo.length;$('zoom-label').textContent=Math.round(chartView.cell/24*100)+'%';Access.restrictControls();}
-function render(){const side=M.knittingSide(p),reading=side.wrongSide?'裏側（WS） · 左から右 →':'表側（RS） · 右から左 ←';$('knitting-mode-open').textContent=p.flatKnitting?'編み方：往復編み ▾':'編み方：輪編み・方向を固定 ▾';for(const id of ['working-side','chart-reading']){$(id).hidden=!p.flatKnitting;$(id).textContent=`${M.rowNumber(p,p.currentRow)}段目：${reading}`;}if(!p.yarns.some(y=>y.id===yarn))yarn=p.yarns[0].id;$('project-name').textContent=p.name;$('completed').textContent=`完了 ${p.completedRows.length} / ${M.totalRows(p)}段`;$('choose-row').replaceChildren(document.createTextNode(M.rowNumber(p,p.currentRow)));const small=document.createElement('small');small.textContent=`/ ${M.totalRows(p)} ▾`;$('choose-row').append(small);const done=p.completedRows.includes(p.currentRow);$('complete').textContent=done?(M.rowNumber(p,p.currentRow)===M.totalRows(p)?'最終段は完了 ✓':'次の段へ →'):'この段を完了 →';$('complete').disabled=done&&M.rowNumber(p,p.currentRow)===M.totalRows(p);$('previous').disabled=M.rowNumber(p,p.currentRow)===1&&!p.completedRows.includes(p.currentRow);$('progress').style.width=p.completedRows.length/M.totalRows(p)*100+'%';$('memo-open').textContent=p.notes[p.currentRow]?`メモ：${p.notes[p.currentRow]}`:'＋ この段のメモ';$('repeat-label').textContent=`横${p.horizontalRepeats} × 縦${p.verticalRepeats}`;$('dimensions').textContent=`${p.columns}目 × ${p.rows}段`;$('direction-open').textContent=p.topDown?'編む方向：トップダウン（上→下）':'編む方向：ボトムアップ（下→上）';$('knitting-order').textContent=p.topDown?'1マス＝1目 · 上から下へ':'1マス＝1目 · 下から上へ';$('direction-bottom').setAttribute('aria-pressed',String(!p.topDown));$('direction-top').setAttribute('aria-pressed',String(p.topDown));
+function controls(){if(!locked)countedRun=null;$('run-count').hidden=!locked;$('run-count').textContent=countedRun?`${M.rowNumber(p,countedRun.row+1)}段目 · ${p.yarns.find(y=>y.id===countedRun.id)?.name||'毛糸'}：${countedRun.count}目連続（左から${countedRun.left+1}〜${countedRun.right+1}マス）`:'色のマスをタップすると、横に連続する目数を表示します。';$('symbol-tools').hidden=locked||tool!=='symbol';$('column-numbering').value=(p.flatKnitting?M.knittingSide(p).numberFromRight:chartView.numberFromRight)?'right':'left';$('column-numbering').disabled=p.flatKnitting;$('palette').hidden=locked;$('tools').hidden=locked;document.querySelector('.flip-row').hidden=locked;document.querySelectorAll('[data-tool]').forEach(b=>b.disabled=locked&&b.dataset.tool!=='pan');for(const id of ['flip-h','flip-v','clear','copy','move','stitch-edit','add-color','new-project','apply-repeats','image-file','photo-file','yoke-open','text-open','padding-open','import','scan-open'])$(id).disabled=locked;$('chart-lock').setAttribute('aria-pressed',String(locked));$('chart-lock').textContent=locked?'ロック中 · 解除する':'編み図をロック';$('chart-panel').classList.toggle('chart-locked',locked);$('lock-hint').textContent=locked?'ロック中：色をタップして目数を確認。1本指のドラッグで移動できます。':'編集できます。編むときはロックすると誤タップを防げます。';document.querySelectorAll('[data-tool]').forEach(b=>{b.classList.toggle('active',b.dataset.tool===tool);b.setAttribute('aria-pressed',String(b.dataset.tool===tool));});$('selection-tools').hidden=!selection;$('undo').disabled=locked||!undo.length;$('redo').disabled=locked||!redo.length;$('zoom-label').textContent=Math.round(chartView.cell/24*100)+'%';if(p.scan){const c=$('scan-chart'),fitScale=c.clientWidth?(c.clientWidth-SCAN_GUTTER-8)/scanLayout(p.scan).width:0;$('scan-zoom-label').textContent=fitScale&&scanView.scale?Math.round(scanView.scale/fitScale*100)+'%':'';}Access.restrictControls();}
+function render(){const side=M.knittingSide(p),reading=side.wrongSide?'裏側（WS） · 左から右 →':'表側（RS） · 右から左 ←';$('knitting-mode-open').textContent=p.flatKnitting?'編み方：往復編み ▾':'編み方：輪編み・方向を固定 ▾';for(const id of ['working-side','chart-reading']){$(id).hidden=!p.flatKnitting;$(id).textContent=`${M.rowNumber(p,p.currentRow)}段目：${reading}`;}if(!p.yarns.some(y=>y.id===yarn))yarn=p.yarns[0].id;$('project-name').textContent=p.name;$('completed').textContent=`完了 ${p.completedRows.length} / ${M.totalRows(p)}段`;$('choose-row').replaceChildren(document.createTextNode(M.rowNumber(p,p.currentRow)));const small=document.createElement('small');small.textContent=`/ ${M.totalRows(p)} ▾`;$('choose-row').append(small);const done=p.completedRows.includes(p.currentRow);$('complete').textContent=done?(M.rowNumber(p,p.currentRow)===M.totalRows(p)?'最終段は完了 ✓':'次の段へ →'):'この段を完了 →';$('complete').disabled=done&&M.rowNumber(p,p.currentRow)===M.totalRows(p);$('previous').disabled=M.rowNumber(p,p.currentRow)===1&&!p.completedRows.includes(p.currentRow);$('progress').style.width=p.completedRows.length/M.totalRows(p)*100+'%';$('memo-open').textContent=p.notes[p.currentRow]?`メモ：${p.notes[p.currentRow]}`:'＋ この段のメモ';$('repeat-label').textContent=`横${p.horizontalRepeats} × 縦${p.verticalRepeats}`;$('dimensions').textContent=`${p.columns}目 × ${p.rows}段`;if(p.scan)$('scan-dimensions').textContent=`${p.rows}段・${p.scan.pages.length}ページ`;$('direction-open').textContent=p.topDown?'編む方向：トップダウン（上→下）':'編む方向：ボトムアップ（下→上）';$('knitting-order').textContent=p.topDown?'1マス＝1目 · 上から下へ':'1マス＝1目 · 下から上へ';$('direction-bottom').setAttribute('aria-pressed',String(!p.topDown));$('direction-top').setAttribute('aria-pressed',String(p.topDown));
  $('palette').replaceChildren();{const current=p.yarns.find(y=>y.id===yarn);$('recolor-row').hidden=locked||!current;if(current){if($('yarn-recolor').value!==current.color)$('yarn-recolor').value=current.color;$('yarn-recolor').style.setProperty('--swatch',current.color);$('yarn-recolor').setAttribute('aria-label',`${current.name}の色を変更`);}}for(const y of p.yarns){const b=document.createElement('button');b.style.setProperty('--swatch',y.color);b.setAttribute('aria-label',y.name);b.title=y.name;b.setAttribute('aria-pressed',String(y.id===yarn));b.disabled=locked;b.onclick=()=>{if(!editable())return;yarn=y.id;tool='pen';render();};$('palette').append(b);}controls();paintCanvases();}
-function paintCanvases(){draw($('chart'),p,chartView,false,selection,readability,countedRun);draw($('preview'),p,previewView,true);}
-function focus(){chartView.y=CHART_HEADER+($('chart').clientHeight-CHART_HEADER-CHART_FOOTER)/2-(M.totalRows(p)-p.currentRow+.5)*chartView.cell;paintCanvases();}
+function paintCanvases(){if(p.scan){drawScan($('scan-chart'),p,scanView,readability,paintCanvases);return;}draw($('chart'),p,chartView,false,selection,readability,countedRun);draw($('preview'),p,previewView,true);}
+function focus(){if(p.scan){const c=$('scan-chart');if(!scanView.scale&&c.clientWidth)readableView(scanView,p,c.clientWidth,c.clientHeight);focusRow(scanView,p,c.clientWidth,c.clientHeight);paintCanvases();controls();return;}chartView.y=CHART_HEADER+($('chart').clientHeight-CHART_HEADER-CHART_FOOTER)/2-(M.totalRows(p)-p.currentRow+.5)*chartView.cell;paintCanvases();}
 function fitPreview(){const c=$('preview');previewView.cell=Math.max(3,Math.min(c.clientWidth/M.totalColumns(p),c.clientHeight/M.totalRows(p)/1.22));previewView.x=(c.clientWidth-M.totalColumns(p)*previewView.cell)/2;previewView.y=0;paintCanvases();}
 function applyView(){
  document.querySelector('main').classList.toggle('both-view',mode==='both');
  $('settings').hidden=mode!=='settings';$('work').hidden=mode==='settings';
- $('chart-panel').hidden=mode==='preview';$('preview-panel').hidden=mode==='chart';
+ const scan=!!p.scan;document.body.classList.toggle('scan-mode',scan);$('scan-panel').hidden=!scan;
+ $('chart-panel').hidden=scan||mode==='preview';$('preview-panel').hidden=scan||mode==='chart';
  $('preview-panel').classList.toggle('preview-only',mode==='preview');
  $('edit-history').hidden=mode!=='both'&&mode!=='chart';
  document.querySelectorAll('[data-view]').forEach(b=>{b.classList.toggle('active',b.dataset.view===mode);b.setAttribute('aria-pressed',String(b.dataset.view===mode));});
@@ -70,7 +72,7 @@ $('memo-open').onclick=()=>{memoRow=p.currentRow;$('memo-title').textContent=`${
 function restoreHistory(from,to){
  if(!editable()||!from.length)return;
  const columns=M.totalColumns(p),rows=M.totalRows(p);
- to.push(M.clone(p));p=from.pop();selection=null;clipboard=null;tool='pen';save();render();
+ to.push(M.clone(p));p=from.pop();selection=null;clipboard=null;tool='pen';scanView.scale=0;save();applyView();render();
  // Keep the edited area in place for paint/erase/fill; refit only structural changes.
  if(columns!==M.totalColumns(p)||rows!==M.totalRows(p)){fitPreview();focus();}
 }
@@ -93,7 +95,7 @@ gestures($('chart'),chartView,false);gestures($('preview'),previewView,true);
 function settings(){$('name').value=p.name;$('repeat-h').value=p.horizontalRepeats;$('repeat-v').value=p.verticalRepeats;$('dividers').checked=p.showDividers;$('yarn-list').replaceChildren();for(const y of p.yarns){const row=document.createElement('div');row.className='yarn-row';const sw=document.createElement('input');sw.type='color';sw.value=y.color;sw.className='yarn-swatch';sw.style.setProperty('--swatch',y.color);sw.setAttribute('aria-label',`${y.name}の色を変更`);sw.disabled=locked;sw.oninput=sw.onchange=()=>{if(!liveRecolor(y.id,sw.value))sw.value=(p.yarns.find(a=>a.id===y.id)||y).color;};const label=document.createElement('span');label.textContent=y.name;const b=document.createElement('button');b.textContent='色を削除';b.disabled=locked||p.yarns.length===1;b.onclick=()=>{if(!editable())return;if(!confirm(`「${y.name}」を削除し、使用しているマスを残りの最初の色に置き換えますか？`))return;change(()=>{p.yarns=p.yarns.filter(a=>a.id!==y.id);p.cells=p.cells.map(r=>r.map(id=>id===y.id?p.yarns[0].id:id));});clipboard=null;settings();};const rename=document.createElement('button');rename.textContent='名前を変更';rename.disabled=locked;rename.onclick=()=>{if(!editable())return;const name=prompt('毛糸の名前（100文字まで）',y.name);if(name===null)return;try{const next=name.trim();if(!next||next.length>100)throw Error('毛糸名は1〜100文字で入力してください。');change(()=>M.renameYarn(p,y.id,next));settings();}catch(e){message(e.message);}};row.append(sw,label,rename,b);$('yarn-list').append(row);}Access.restrictControls();}
 $('name').onchange=()=>change(()=>p.name=$('name').value.trim()||'名前のない作品');$('dividers').onchange=()=>change(()=>p.showDividers=$('dividers').checked);$('apply-repeats').onclick=()=>{if(!editable())return;try{const h=number('repeat-h',1,10),v=number('repeat-v',1,10);if(v<p.verticalRepeats&&!confirm('減らした範囲の進捗とメモは除外されます。変更しますか？'))return;change(()=>M.repeats(p,h,v));settings();message('リピートを反映しました。');}catch(e){message(e.message);}};
 $('add-color').onclick=()=>{if(!editable())return;if(p.yarns.length>=64)return message('毛糸は64色まで追加できます。');change(()=>{const id=Math.max(...p.yarns.map(y=>y.id))+1;p.yarns.push({id,name:$('new-color-name').value.trim()||`毛糸 ${id+1}`,color:$('new-color').value});yarn=id;});settings();};
-function replace(next){if(!editable())return;canSave=true;change(()=>p=next);selection=null;clipboard=null;tool='pen';yarn=p.yarns[0].id;setView('both');render();}
+function replace(next){if(!editable())return;canSave=true;change(()=>p=next);scanView.scale=0;applyView();selection=null;clipboard=null;tool='pen';yarn=p.yarns[0].id;setView('both');render();}
 $('new-project').onclick=()=>{if(!editable())return;try{const w=number('new-width',1,200),h=number('new-height',1,200);if(confirm('現在の作品を新しい白紙に置き換えます。必要なら先に作品を書き出してください。'))replace(M.blank(w,h));}catch(e){message(e.message);}};
 $('export').onclick=async()=>{try{const name=(p.name.replace(/[\\/:*?"<>|]/g,'_')||'pattern')+'.json';await Platform.exportProject(JSON.stringify(p,null,2),name);message('共有画面から「ファイルに保存」などを選んで保管してください。');}catch{message('書き出しを完了できませんでした。もう一度お試しください。');}};
 $('import').onchange=async e=>{if(!editable()){e.target.value='';return;}const file=e.target.files[0];try{if(!file)return;if(file.size>32000000)throw Error('作品ファイルは32MB以下にしてください');const next=M.validate(JSON.parse(await file.text()));if(confirm('このファイルで現在の作品を置き換えますか？'))replace(next);}catch(err){message('読み込みできません：'+err.message);}finally{e.target.value='';}};
@@ -117,7 +119,12 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)finishRecol
 $('yarn-recolor').oninput=$('yarn-recolor').onchange=e=>{if(!liveRecolor(yarn,e.target.value))render();};
 setupPrint({project:()=>p,numberFromRight:()=>p.flatKnitting?M.knittingSide(p).numberFromRight:chartView.numberFromRight,exportFile:(bytes,name,type)=>Platform.exportFile(bytes,name,type),message});
 setupPhotoImport({replace,editable,message});
-setupScanImport({replace,editable,message});
+setupScanImport({replace,editable,message,readability:()=>readability});
+// Photographed chart: pan and pinch freely; a tap on the row numbers picks the row (the photo itself is never edited).
+const scanZoom=zoomGestures($('scan-chart'),scanView,{onChange:()=>{paintCanvases();controls();},minScale:()=>p.scan?($('scan-chart').clientWidth-SCAN_GUTTER-8)/scanLayout(p.scan).width*.5:.02,maxScale:()=>p.scan?($('scan-chart').clientWidth-SCAN_GUTTER-8)/scanLayout(p.scan).width*8:8,
+ onTap:pos=>{if(!p.scan||pos.x>=SCAN_GUTTER)return;const row=rowAtScreen(p,scanView,pos.x,pos.y);if(row)change(()=>M.selectRow(p,row));}});
+$('scan-zoom-in').onclick=()=>{scanZoom.zoomBy(1.25);};$('scan-zoom-out').onclick=()=>{scanZoom.zoomBy(1/1.25);};$('scan-focus').onclick=focus;
+$('scan-fit').onclick=()=>{const c=$('scan-chart');fitView(scanView,scanLayout(p.scan),c.clientWidth,c.clientHeight);paintCanvases();controls();};
 setupYoke({replace,editable,message});
 setupPadding({getPattern:()=>p,editable,change,settings,message,clearSelection:()=>{selection=null;clipboard=null;render();}});
 // Safari's toolbar/keyboard changes viewport height while scrolling. It must
@@ -127,13 +134,13 @@ function scheduleCanvasResize(){
  if(resizeFrame)return;
  resizeFrame=requestAnimationFrame(()=>{
   resizeFrame=0;
-  const signature=[$('chart'),$('preview')].map(c=>`${c.clientWidth}:${c.clientHeight}`).join('|')+`:${devicePixelRatio}`;
+  const signature=[$('chart'),$('preview'),$('scan-chart')].map(c=>`${c.clientWidth}:${c.clientHeight}`).join('|')+`:${devicePixelRatio}`;
   if(signature===lastCanvasSize)return;
   lastCanvasSize=signature;paintCanvases();
  });
 }
 const canvasObserver=new ResizeObserver(scheduleCanvasResize);
-canvasObserver.observe($('chart'));canvasObserver.observe($('preview'));
+canvasObserver.observe($('chart'));canvasObserver.observe($('preview'));canvasObserver.observe($('scan-chart'));
 window.addEventListener('resize',scheduleCanvasResize);
 let resumeTimer;
 function restoreVisibleScreen(){
@@ -193,9 +200,8 @@ $('column-numbering').onchange=()=>{chartView.numberFromRight=$('column-numberin
 for(const symbol of M.INCREASES){
  for(const id of ['stitch-symbol','structure-symbol']){const option=document.createElement('option');option.value=symbol.code;option.textContent=`${symbol.code} · ${symbol.name}`;$(id).append(option);}
 }
-{const group=document.createElement('optgroup');group.label='編み目記号';for(const s of STITCHES){if(s.code==='UNK')continue;const option=document.createElement('option');option.value=s.code;option.textContent=s.width>1?`${s.name}（${s.width}目）`:s.name;group.append(option);}$('stitch-symbol').append(group);}
 const removeSymbol=document.createElement('option');removeSymbol.value='';removeSymbol.textContent='記号だけ消す';$('stitch-symbol').append(removeSymbol);
-function symbolDescription(){const v=$('stitch-symbol').value,s=M.INCREASES.find(s=>s.code===v),k=STITCHES.find(s=>s.code===v);$('symbol-description').textContent=s?`${s.code}：${s.description} このアプリでは増えた1目のマスに略号を置きます。`:k?(k.width>1?`${k.name}：タップしたマスから右へ${k.width}目に置きます。どのマスを消しても交差全体が消えます。`:`${k.name}の記号を置きます。記号のないマスは表目です。`):'毛糸色を残して記号だけを消します。';}
+function symbolDescription(){const s=M.INCREASES.find(s=>s.code===$('stitch-symbol').value);$('symbol-description').textContent=s?`${s.code}：${s.description} このアプリでは増えた1目のマスに略号を置きます。`:'毛糸色を残して記号だけを消します。';}
 $('stitch-symbol').onchange=symbolDescription;symbolDescription();
 
 Access.setupPurchases(()=>{render();settings();});

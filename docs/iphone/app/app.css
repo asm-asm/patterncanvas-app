@@ -65,15 +65,13 @@ h1{font-size:24px}
 #yarn-recolor::-webkit-color-swatch-wrapper,.yarn-swatch::-webkit-color-swatch-wrapper{padding:0}#yarn-recolor::-webkit-color-swatch,.yarn-swatch::-webkit-color-swatch{border:none;border-radius:50%}
 .yarn-swatch:disabled,#yarn-recolor:disabled{opacity:.5}
 .access-close{position:absolute;top:6px;right:6px;width:44px;height:44px;min-height:44px;padding:0;border:0;background:none;font-size:24px;line-height:1;color:var(--muted)}.access-close[hidden]{display:none}
-/* Photographed book chart → editable chart (本の編み図を取り込む) */
+/* Photographed chart (本の編み図) */
+.scan-only{display:none}.scan-mode .scan-only{display:block}.scan-mode .pattern-only{display:none!important}
+#scan-chart{height:min(60svh,560px);background:#e9ebe3}.both-view #scan-chart{height:calc(100svh - 420px);min-height:360px}
 .scan-open{display:block;width:100%;text-align:left;background:var(--light);border-color:#c9dccd;margin-bottom:6px}.scan-open small{display:block;font-size:10px;color:var(--muted);line-height:1.6}
 .scan-page-label{display:inline-block;font-size:11px;font-weight:600;color:white;background:var(--sage);border-radius:999px;padding:2px 10px;margin:0 0 4px}
 .scan-tips{padding-left:18px;font-size:12px;color:var(--muted)}.scan-tips li{margin-bottom:4px}
 .scan-sources{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.scan-sources .file-button{display:grid;place-items:center;text-align:center;min-height:56px;font-size:14px}
-.scan-dialog canvas{touch-action:none;border-radius:10px}#scan-corners{height:min(52svh,520px);background:#30483e}#scan-grid{height:min(50svh,520px);background:#e9ebe3}#scan-preview{height:200px;touch-action:pan-y;background:#f3f0e7}
+.scan-dialog canvas{touch-action:none;background:#30483e;border-radius:10px}#scan-corners{height:min(52svh,520px)}#scan-check{height:min(50svh,520px);background:#e9ebe3}#scan-overview{height:min(42svh,420px);background:#e9ebe3}
 .scan-dialog section>button{display:block;width:100%;margin-bottom:6px}.scan-dialog .form-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .scan-dialog [role=alert]:empty{display:none}.scan-dialog [role=alert]{color:#8d1735;font-size:12px}
-.scan-group{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;border-top:1px solid var(--line);padding:8px 0}.scan-group p{margin:0 0 4px;font-size:12px}.scan-group select{width:100%;min-height:40px}
-.scan-group-pics{display:grid;gap:3px}.scan-group-pics canvas{width:108px;height:36px;border-radius:4px;touch-action:auto;image-rendering:pixelated;border:1px solid var(--line)}
-.scan-note:empty{display:none}.scan-note{color:var(--sage)!important}
-#scan-colours{display:flex;flex-wrap:wrap;gap:8px}.scan-colour{display:flex;align-items:center;gap:6px;font-size:12px;margin:0}.scan-colour input{width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%}

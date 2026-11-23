@@ -1,5 +1,5 @@
 import {reduceImage} from './image-model.mjs';
-import {STITCH_CELL_CODES,stitchPart,stitchDef,cellCodes,mirrorStitch} from './stitches.mjs';
+import {validateScan,scanRows} from './scan-model.mjs';
 export const INCREASES=Object.freeze([
  {code:'M1L',name:'左増し目（表目）',description:'渡り糸から左に傾く1目を作る増し目。'},
  {code:'M1R',name:'右増し目（表目）',description:'渡り糸から右に傾く1目を作る増し目。'},
@@ -8,30 +8,19 @@ export const INCREASES=Object.freeze([
  {code:'KFB',name:'表裏を編む増し目',description:'1目の手前と向こう側を編み、2目にする（差し引き＋1目）。'},
  {code:'YO',name:'掛け目',description:'針に糸を掛けて1目増やす。穴のある増し目。'}
 ]);
-// Cell symbols: the increases above (drawn as their abbreviation) and the knitting symbols of stitches.mjs.
-const symbolCodes=new Set([...INCREASES.map(s=>s.code),...STITCH_CELL_CODES]);
-export const isSymbolCode=code=>symbolCodes.has(code);
+const symbolCodes=new Set(INCREASES.map(s=>s.code));
 export const symbolAt=(p,x,r)=>colorAt(p,x,r)===null?null:p.symbols?.[r%p.rows]?.[x%p.columns]??null;
 function ensureSymbols(p){if(!p.symbols)p.symbols=Array.from({length:p.rows},()=>Array(p.columns).fill(null));p.format='patterncanvas-web-3';}
-/** Clear the whole wide symbol (cable) that covers cell x of row r, if any. */
-function clearSpan(p,x,r){const part=stitchPart(p.symbols?.[r]?.[x]);if(!part||part.width===1)return;for(let i=0;i<part.width;i++){const at=x-part.index+i;if(at>=0&&at<p.columns&&stitchPart(p.symbols[r][at])?.code===part.code)p.symbols[r][at]=null;}}
-/**
- * Put a symbol on a cell, or clear it (null). A wide symbol (a cable) starts at x and covers the cells to its right;
- * it needs that many stitches in the row. Clearing any cell of a cable clears the whole cable.
- */
 export function setSymbol(p,x,r,code){
- const wide=code!==null&&!symbolCodes.has(code)&&stitchDef(code)?.width>1;
- if(code!==null&&!symbolCodes.has(code)&&!wide)throw Error('対応していない記号です');
+ if(code!==null&&!symbolCodes.has(code))throw Error('対応していない増し目記号です');
  if(!Number.isInteger(x)||!Number.isInteger(r)||x<0||r<0||x>=p.columns||r>=p.rows)throw Error('記号を置くマスを確認してください');
  if(p.cells[r][x]===null||(!p.symbols&&code===null))return;
- ensureSymbols(p);
- if(wide){const parts=cellCodes(code);if(x+parts.length>p.columns||parts.some((_,i)=>p.cells[r][x+i]===null))throw Error(`${stitchDef(code).name}は横に${parts.length}目必要です`);
-  parts.forEach((_,i)=>clearSpan(p,x+i,r));parts.forEach((c,i)=>{p.symbols[r][x+i]=c;});return;}
- clearSpan(p,x,r);p.symbols[r][x]=code;
+ ensureSymbols(p);p.symbols[r][x]=code;
 }
 export function erase(p,x,r){paint(p,x,r,p.yarns[0].id);setSymbol(p,x,r,null);}
 
-export const clone = p => JSON.parse(JSON.stringify(p));
+// Scanned pages carry large JPEG strings: copies share them (strings are immutable) instead of duplicating them.
+export const clone = p => {if(!p?.scan)return JSON.parse(JSON.stringify(p));const {scan,...rest}=p,q=JSON.parse(JSON.stringify(rest));q.scan={...scan,pages:scan.pages.map(pg=>({...pg,grid:{...pg.grid},strips:[...pg.strips],lines:pg.lines.map(ys=>[...ys])}))};return q;};
 export const totalRows = p => p.rows * p.verticalRepeats;
 export const totalColumns = p => p.columns * p.horizontalRepeats;
 export const colorAt = (p, x, row) => p.cells[row % p.rows][x % p.columns];
@@ -85,18 +74,19 @@ export function validate(p) {
   const ids=new Set();for(const y of p.yarns){if(!integer(y.id,0,1000000)||ids.has(y.id)||typeof y.name!=='string'||y.name.length>100||!/^#[0-9a-f]{6}$/i.test(y.color))throw Error('毛糸の情報が不正です');ids.add(y.id);}
   if(!Array.isArray(p.cells)||p.cells.length!==p.rows||p.cells.some(r=>!Array.isArray(r)||r.length!==p.columns||r.some(c=>!ids.has(c)&&!(p.format!=='patterncanvas-web-1'&&c===null))))throw Error('編み図のマスが不正です');
   if(p.format==='patterncanvas-web-3'||p.symbols!==undefined){
-    if(p.format!=='patterncanvas-web-3'||!Array.isArray(p.symbols)||p.symbols.length!==p.rows||p.symbols.some((row,r)=>!Array.isArray(row)||row.length!==p.columns||row.some((code,x)=>code!==null&&(!symbolCodes.has(code)||p.cells[r][x]===null))))throw Error('記号の情報が不正です');
+    if(p.format!=='patterncanvas-web-3'||!Array.isArray(p.symbols)||p.symbols.length!==p.rows||p.symbols.some((row,r)=>!Array.isArray(row)||row.length!==p.columns||row.some((code,x)=>code!==null&&(!symbolCodes.has(code)||p.cells[r][x]===null))))throw Error('増し目記号の情報が不正です');
   }
   if(!integer(p.currentRow,1,totalRows(p))||!Array.isArray(p.completedRows)||p.completedRows.length>totalRows(p)||p.completedRows.some(r=>!integer(r,1,totalRows(p))))throw Error('進捗が不正です');
   if(!p.notes||typeof p.notes!=='object'||Array.isArray(p.notes)||Object.entries(p.notes).some(([k,v])=>!/^\d+$/.test(k)||!integer(Number(k),1,totalRows(p))||typeof v!=='string'||v.length>2000))throw Error('メモが不正です');
   if(p.topDown!==undefined&&typeof p.topDown!=='boolean')throw Error('編む方向が不正です');
   for(const key of ['flatKnitting','startWrongSide'])if(p[key]!==undefined&&typeof p[key]!=='boolean')throw Error('往復編みの設定が不正です');
-  return {...blank(p.columns,p.rows),topDown:p.topDown===true,flatKnitting:p.flatKnitting===true,startWrongSide:p.startWrongSide===true,format:p.format,name:p.name,cells:clone(p.cells),...(p.symbols?{symbols:clone(p.symbols)}:{}),yarns:clone(p.yarns),horizontalRepeats:p.horizontalRepeats,verticalRepeats:p.verticalRepeats,currentRow:p.currentRow,completedRows:[...new Set(p.completedRows)],notes:{...p.notes},showDividers:p.showDividers!==false,updatedAt:Number.isFinite(p.updatedAt)?p.updatedAt:Date.now()};
+  let scan;if(p.scan!==undefined){scan=validateScan(p.scan);if(p.columns!==1||p.horizontalRepeats!==1||p.verticalRepeats!==1||p.rows!==scanRows(scan))throw Error('撮影した編み図と段数が合いません');}
+  return {...blank(p.columns,p.rows),...(scan?{scan}:{}),topDown:p.topDown===true,flatKnitting:p.flatKnitting===true,startWrongSide:p.startWrongSide===true,format:p.format,name:p.name,cells:clone(p.cells),...(p.symbols?{symbols:clone(p.symbols)}:{}),yarns:clone(p.yarns),horizontalRepeats:p.horizontalRepeats,verticalRepeats:p.verticalRepeats,currentRow:p.currentRow,completedRows:[...new Set(p.completedRows)],notes:{...p.notes},showDividers:p.showDividers!==false,updatedAt:Number.isFinite(p.updatedAt)?p.updatedAt:Date.now()};
 }
 export function paint(p,x,r,id){if(p.cells[r][x]!==null)p.cells[r][x]=id;}
 export function fill(p,x,r,id){const before=p.cells[r][x];if(before===null||before===id)return;const q=[[x,r]];p.cells[r][x]=id;while(q.length){const [a,b]=q.pop();for(const [c,d] of [[a-1,b],[a+1,b],[a,b-1],[a,b+1]])if(c>=0&&d>=0&&c<p.columns&&d<p.rows&&p.cells[d][c]===before){p.cells[d][c]=id;q.push([c,d]);}}}
 export function bounds(s){return {left:Math.min(s.x,s.x2),right:Math.max(s.x,s.x2),bottom:Math.min(s.r,s.r2),top:Math.max(s.r,s.r2)};}
-const mirrorSymbol=code=>({M1L:'M1R',M1R:'M1L',M1LP:'M1RP',M1RP:'M1LP'})[code]??mirrorStitch(code);
+const mirrorSymbol=code=>({M1L:'M1R',M1R:'M1L',M1LP:'M1RP',M1RP:'M1LP'})[code]??code;
 export function flip(p,horizontal,selection=null){
  const b=selection?bounds(selection):{left:0,right:p.columns-1,bottom:0,top:p.rows-1},old=clone(p.cells),marks=p.symbols?clone(p.symbols):null;
  for(let r=b.bottom;r<=b.top;r++)for(let x=b.left;x<=b.right;x++){

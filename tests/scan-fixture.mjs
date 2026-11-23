@@ -1,27 +1,18 @@
-// Synthetic book page for the scan tests: a knitting chart (grid, symbols, shaded cells, row numbers, title)
-// photographed at an angle, optionally on a page that sags (rows bow) and curls (stitch columns bow).
-// Chart space: grid from (0,0) to (cols*cell, rows*cell), y down. Cell (i,j): stitch i from the left, row j from the top.
-
-// bend: rows the middle of the page bulges upward; bendX: stitches the middle of the columns bows sideways. Corners stay.
+// Synthetic book page for the scan tests: a knitting chart (grid, symbols, row numbers, title) photographed at an angle.
+// Chart space: grid from (0,0) to (cols*cell, rows*cell). Returns grey value at a chart point.
+// bend: rows the middle of the page bulges upward (a page curving toward the binding); the corners stay put.
 export const bulge=(cx,W,cell,bend)=>bend*cell*(4*(cx/W)*(1-cx/W));
-/** The symbol printed in cell (i,j): '−' (purl), '×' (a one-cell cross) or null (knit: blank). */
-export const truthSymbol=(i,j)=>(i*7+j*13)%5===0?'−':(i*11+j*3)%7===0?'×':null;
-/** Whether cell (i,j) is shaded (a second yarn): a block in the right half. */
-export const truthShaded=(i,j,cols,rows)=>i>=cols/2&&j>=rows/4&&j<rows*3/4;
-function chartInk(cols,rows,cell,{thickEvery=5,symbols=true,bend=0,bendX=0,shading=false}={}){
+function chartInk(cols,rows,cell,{thickEvery=5,symbols=true,bend=0}={}){
  return (cx,cy)=>{
-  const W=cols*cell,H=rows*cell;
-  if(bend&&cx>=0&&cx<=W)cy+=bulge(cx,W,cell,bend);
-  if(bendX&&cy>=0&&cy<=H)cx+=bulge(cy,H,cell,bendX);
+  const W=cols*cell,H=rows*cell;if(bend&&cx>=0&&cx<=W)cy+=bulge(cx,W,cell,bend);
   if(cx>=-1&&cx<=W+1&&cy>=-1&&cy<=H+1){
    const gx=Math.round(cx/cell),gy=Math.round(cy/cell),dx=Math.abs(cx-gx*cell),dy=Math.abs(cy-gy*cell),rowFromBottom=rows-gy;
    const vLine=dx<(gx%10===0?1.6:.8),hLine=dy<(rowFromBottom%thickEvery===0?1.6:.8);
    if((vLine&&cy>=0&&cy<=H)||(hLine&&cx>=0&&cx<=W))return 70;
-   const i=Math.floor(cx/cell),j=Math.floor(cy/cell),fx=cx/cell-i-.5,fy=cy/cell-j-.5,ground=shading&&truthShaded(i,j,cols,rows)?175:238;
-   if(symbols){const s=truthSymbol(i,j);
-    if(s==='−'&&Math.abs(fx)<.3&&Math.abs(fy)<.06)return 60;
-    if(s==='×'&&Math.abs(Math.abs(fx)-Math.abs(fy))<.05&&Math.abs(fx)<.3)return 60;}
-   return ground;
+   if(symbols){const i=Math.floor(cx/cell),j=Math.floor(cy/cell),fx=cx/cell-i-.5,fy=cy/cell-j-.5;
+    if((i*7+j*13)%5===0&&Math.abs(fx)<.3&&Math.abs(fy)<.06)return 60;                 // "−" purl
+    if((i*11+j*3)%7===0&&Math.abs(Math.abs(fx)-Math.abs(fy))<.05&&Math.abs(fx)<.3)return 60;} // "×" cross
+   return 238;
   }
   // Row numbers every 5 rows at the right, a title above: dark blobs not connected to the grid.
   const j=Math.round((H-cy)/cell);if(cx>W+cell*.6&&cx<W+cell*1.8&&j%5===0&&Math.abs((H-cy)-j*cell+cell/2)<cell*.3)return 50;

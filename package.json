@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "test": "node --test tests/iphone-model.test.mjs tests/iphone-shaping.test.mjs tests/iphone-image.test.mjs tests/iphone-symbols.test.mjs tests/iphone-flat.test.mjs tests/iphone-runs.test.mjs tests/iphone-text.test.mjs tests/iphone-padding.test.mjs tests/iphone-photo.test.mjs tests/iphone-yoke.test.mjs tests/iphone-print.test.mjs tests/iphone-scan.test.mjs tests/iphone-convert.test.mjs",
+    "test": "node --test tests/iphone-model.test.mjs tests/iphone-shaping.test.mjs tests/iphone-image.test.mjs tests/iphone-symbols.test.mjs tests/iphone-flat.test.mjs tests/iphone-runs.test.mjs tests/iphone-text.test.mjs tests/iphone-padding.test.mjs tests/iphone-photo.test.mjs tests/iphone-yoke.test.mjs tests/iphone-print.test.mjs tests/iphone-scan.test.mjs",
     "test:ui": "node tests/iphone-ui.mjs",
     "test:scroll": "node tests/iphone-scroll.mjs",
     "build:commerce": "node scripts/build-commerce.mjs",
