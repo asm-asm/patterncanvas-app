@@ -1,6 +1,5 @@
-import {rectify,grayscale,detectGrid,insetQuad,checkQuad,flatRegion,linesAt,SCAN_MAX_ROWS} from './scan-model.mjs';
-import {readRowNumbers,rowOffset} from './rownumbers.mjs';
-import {analyzeGrid,findGaps,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
+import {rectify,grayscale,detectGrid,insetQuad,checkQuad,SCAN_MAX_ROWS} from './scan-model.mjs';
+import {analyzeGrid,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
 import {STITCHES,stitchPart,stitchDef} from './stitches.mjs';
 import {recognize} from './recognize.mjs';
 import {INCREASES} from './model.mjs';
@@ -27,7 +26,7 @@ function zoomGestures(canvas,view,onChange){
 
 export function setupScanImport({replace,editable,message}){
  const $=id=>document.getElementById(id),dialog=$('scan-dialog');
- let units=[],unitOf=[],pages=[],join='single',addAt='right',source=null,quad=null,current=null,drag=null,fit=null,last=null,reading=null,chart=null,timer=0;
+ let pages=[],join='single',addAt='right',source=null,quad=null,current=null,drag=null,fit=null,last=null,reading=null,chart=null,timer=0;
  const gridView={scale:0,x:0,y:0};
  const step=name=>{for(const s of ['start','corners','grid','pages','symbols'])$(`scan-step-${s}`).hidden=s!==name;dialog.querySelector('.dialog-body').scrollTop=0;};
  const pageLabel=()=>pages.length===0?'1ページ目':join==='side'?`2ページ目（${addAt==='left'?'左':'右'}のページ）`:'2ページ目（段の続き）';
@@ -91,60 +90,26 @@ export function setupScanImport({replace,editable,message}){
   $('scan-flatten').disabled=true;$('scan-flatten').textContent='ゆがみを直しています…';
   setTimeout(()=>{try{
    const data=source.getContext('2d',{willReadFrequently:true}).getImageData(0,0,source.width,source.height).data,r=rectify(data,source.width,source.height,quad);
-   const gray=grayscale(r.data,r.width,r.height),analysis=analyzeGrid(gray,r.width,r.height,r.grid),C0=analysis.cols.rows;
-   // Bands with no stitch lines across the grid are rows the book left out (「省略」): the frame splits into blocks there.
-   const gaps=C0?findGaps(gray,r.width,r.height,r.grid,C0):[],top=r.grid.top*r.height,bottom=r.grid.bottom*r.height,edges=[top,...gaps.flat(),bottom],blocks=[];
-   for(let i=edges.length-2;i>=0;i-=2){const grid={...r.grid,top:edges[i]/r.height,bottom:edges[i+1]/r.height};blocks.push({grid,analysis:gaps.length?analyzeGrid(gray,r.width,r.height,grid):analysis});}
-   // Row numbers beside the chart tell how many rows each omission leaves out; read them from the photo's own pixels.
-   let numbers=[];
-   if(gaps.length){const density=Math.max(1,Math.min(3,Math.hypot(quad[1][0]-quad[0][0],quad[1][1]-quad[0][1])/((r.grid.right-r.grid.left)*r.width))),pitch=(r.grid.right-r.grid.left)*r.width/Math.max(1,C0);
-    numbers=readRowNumbers((x0,x1,y0,y1)=>({...flatRegion(data,source.width,source.height,quad,r.width,r.height,{x0,x1,y0,y1},density),k:density}),r.width,r.height,r.grid,pitch);}
-   current={rgba:r.data,width:r.width,height:r.height,analysis,blocks,numbers,omits:gaps.map(()=>({value:null,edited:false})),source,quad:quad.map(q=>[...q])};
-   const fixedRows=join==='side'&&pages.length===1&&blocks.length===1&&(pages[0].parts?.length??1)===1?pages[0].R:null;
-   $('scan-rows').value=fixedRows??blocks[0].analysis.rows.rows??'';$('scan-cols').value=C0??'';
+   const analysis=analyzeGrid(grayscale(r.data,r.width,r.height),r.width,r.height,r.grid);
+   current={rgba:r.data,width:r.width,height:r.height,analysis,source,quad:quad.map(q=>[...q])};
+   const fixedRows=join==='side'&&pages.length===1?pages[0].R:null;
+   $('scan-rows').value=fixedRows??analysis.rows.rows??'';$('scan-cols').value=analysis.cols.rows??'';
    $('scan-rows').disabled=$('scan-rows-less').disabled=$('scan-rows-more').disabled=fixedRows!==null;
-   $('scan-rows-step').hidden=blocks.length>1;showBlocks();
-   const read=[blocks.length===1&&analysis.rows.rows&&`${analysis.rows.rows}段`,C0&&`${C0}目`].filter(Boolean).join('・');
-   $('scan-detected').textContent=(fixedRows!==null?`段数はもう片方のページと同じ${fixedRows}段です。`:'')+(blocks.length>1?`途中に段の省略が${gaps.length}か所あります。省略された段は、すぐ下の段の模様をくり返して埋めます。`:'')+(read?`写真のマス目から${read}と読み取りました。本の段数・目数と合っているか確かめてください。`:'')+(!C0||blocks.some(b=>!b.analysis.rows.rows)?'読み取れなかった数を入力してください。':'');
+   const read=[analysis.rows.rows&&`${analysis.rows.rows}段`,analysis.cols.rows&&`${analysis.cols.rows}目`].filter(Boolean).join('・');
+   $('scan-detected').textContent=(fixedRows!==null?`段数はもう片方のページと同じ${fixedRows}段です。`:'')+(read?`写真のマス目から${read}と読み取りました。本の段数・目数と合っているか確かめてください。`:'')+(!analysis.rows.rows||!analysis.cols.rows?'読み取れなかった数を入力してください。':'');
    gridView.scale=0;step('grid');refit();
   }catch(error){$('scan-corners-error').textContent=error.message;}finally{$('scan-flatten').disabled=false;$('scan-flatten').textContent='次へ：マス目を確かめる';}},30);
  };
  $('scan-back-corners').onclick=()=>{source=current?.source??source;step('corners');requestAnimationFrame(drawCorners);};
  const count=id=>{const n=Number($(id).value);return Number.isInteger(n)&&n>=1&&n<=MAX_COUNT?n:null;};
- // Several blocks: a row count for each (top first, as on the page) and the rows left out between them.
- function showBlocks(){
-  const box=$('scan-blocks');box.replaceChildren();box.hidden=current.blocks.length<2;if(current.blocks.length<2)return;
-  const stepper=(label,id,value,oninput)=>{const row=document.createElement('div');row.className='color-step';const less=document.createElement('button'),more=document.createElement('button'),wrap=document.createElement('label'),input=document.createElement('input');
-   less.type=more.type='button';less.textContent='−1';more.textContent='＋1';wrap.textContent=label;input.id=id;input.type='number';input.min='0';input.max=String(MAX_COUNT);input.inputMode='numeric';input.value=value??'';wrap.append(input);
-   input.oninput=()=>oninput(input);less.onclick=()=>{input.value=Math.max(0,(Number(input.value)||0)-1);oninput(input);};more.onclick=()=>{input.value=Math.min(MAX_COUNT,(Number(input.value)||0)+1);oninput(input);};
-   row.append(less,wrap,more);return row;};
-  for(let i=current.blocks.length-1;i>=0;i--){const b=current.blocks[i];
-   box.append(stepper(`${i===current.blocks.length-1?'いちばん上':i===0?'いちばん下':`下から${i+1}つ目`}のブロックの段数`,`scan-block-rows-${i}`,b.analysis.rows.rows,()=>refit()));
-   if(i>0){const o=current.omits[i-1],row=stepper('省略された段数',`scan-omit-${i-1}`,o.value,input=>{o.edited=true;o.value=Number(input.value)||0;refit();});row.classList.add('scan-omit');box.append(row);
-    const note=document.createElement('p');note.className='hint';note.id=`scan-omit-note-${i-1}`;box.append(note);}}
- }
  function refit(){
-  clearTimeout(timer);current.unwarp=null;$('scan-page-done').disabled=true;
-  const C=count('scan-cols'),blocks=current.blocks,rowsOf=i=>blocks.length===1?count('scan-rows'):count(`scan-block-rows-${i}`);
-  const ok=C&&blocks.every((_,i)=>rowsOf(i));$('scan-grid-error').textContent=ok?'':`段数・目数は1〜${MAX_COUNT}の整数で入力してください。`;
-  if(!ok){drawGrid();return;}
+  clearTimeout(timer);current.fit=null;current.unwarp=null;const R=count('scan-rows'),C=count('scan-cols');
+  $('scan-grid-error').textContent=R&&C?'':`段数・目数は1〜${MAX_COUNT}の整数で入力してください。`;$('scan-page-done').disabled=true;
+  if(!R||!C){drawGrid();return;}
   timer=setTimeout(()=>{try{
-   current.C=C;
-   blocks.forEach((b,i)=>{b.R=rowsOf(i);b.fit=fitGrid(b.analysis,b.R,C);b.mesh=buildMesh(b.fit);const u=unwarp(current.rgba,current.width,current.height,b.mesh,b.R,C,UNWARP),canvas=document.createElement('canvas');canvas.width=u.width;canvas.height=u.height;canvas.getContext('2d').putImageData(new ImageData(u.data,u.width,u.height),0,0);b.unwarp=canvas;
-    // How the book numbers this block's rows, from the numbers beside it.
-    const edge=linesAt(b.fit.rows,b.grid.right).map(v=>v*current.height);b.offset=current.numbers.length?rowOffset(current.numbers,y=>{for(let r=1;r<=b.R;r++)if(y<=edge[r-1]&&y>=edge[r])return r;return null;}):null;});
-   current.omits.forEach((o,i)=>{const lo=blocks[i],up=blocks[i+1],guess=lo.offset!=null&&up.offset!=null?up.offset-lo.offset-lo.R:null,ok=guess!==null&&guess>=0&&guess<=MAX_COUNT;
-    if(!o.edited){o.value=ok?guess:0;const input=$(`scan-omit-${i}`);if(input)input.value=o.value;}
-    const note=$(`scan-omit-note-${i}`);if(note)note.textContent=o.edited?'':ok?`段番号から${guess}段と予測しました。本の段番号と合っているか確かめてください。`:'段番号を読み取れませんでした。本の段番号から、省略された段数を入力してください。';});
-   current.R=blocks.reduce((n,b)=>n+b.R,0)+current.omits.reduce((n,o)=>n+(o.value||0),0);
-   // One picture: the blocks top first, with a hatched band for each omission.
-   const band=Math.round(UNWARP*1.4),canvas=document.createElement('canvas');canvas.width=C*UNWARP;canvas.height=blocks.reduce((n,b)=>n+b.unwarp.height,0)+band*(blocks.length-1);
-   const g=canvas.getContext('2d');let y=0;current.rowsAt=[];let first=pages.length&&join==='stack'?pages.reduce((n,pg)=>n+pg.R,0):0;
-   const numbered=[];let row=first;blocks.forEach((b,i)=>{numbered[i]=row;row+=b.R+(current.omits[i]?.value||0);});
-   for(let i=blocks.length-1;i>=0;i--){const b=blocks[i];g.drawImage(b.unwarp,0,y);for(let r=1;r<=b.R;r++)current.rowsAt.push({n:numbered[i]+r,y:y+(b.R-r+.5)*UNWARP});y+=b.unwarp.height;
-    if(i>0){g.fillStyle='#f8e6d8';g.fillRect(0,y,canvas.width,band);g.strokeStyle='#d0021b88';g.lineWidth=2;for(let x=-band;x<canvas.width;x+=12){g.beginPath();g.moveTo(x,y+band);g.lineTo(x+band,y);g.stroke();}
-     g.fillStyle='#8d1735';g.font=`bold ${Math.round(band*.6)}px -apple-system, sans-serif`;g.textAlign='center';g.textBaseline='middle';g.fillText(`${current.omits[i-1].value||0}段省略`,canvas.width/2,y+band/2);y+=band;}}
-   current.unwarp=canvas;$('scan-page-done').disabled=false;drawGrid();
+   const f=fitGrid(current.analysis,R,C),mesh=buildMesh(f);current.fit=f;current.mesh=mesh;current.R=R;current.C=C;
+   const u=unwarp(current.rgba,current.width,current.height,mesh,R,C,UNWARP),canvas=document.createElement('canvas');canvas.width=u.width;canvas.height=u.height;canvas.getContext('2d').putImageData(new ImageData(u.data,u.width,u.height),0,0);current.unwarp=canvas;
+   $('scan-page-done').disabled=false;drawGrid();
   }catch(error){$('scan-grid-error').textContent=error.message;}},60);
  }
  function drawGrid(){
@@ -153,30 +118,27 @@ export function setupScanImport({replace,editable,message}){
   v.min=(width-gutter)/img.width*.5;v.max=(width-gutter)/img.width*10;if(!v.scale){v.scale=(width-gutter)/img.width;v.x=gutter;v.y=Math.min(0,height-img.height*v.scale);}
   const w=img.width*v.scale,h=img.height*v.scale;v.x=w<=width-gutter?gutter+(width-gutter-w)/2:Math.min(gutter,Math.max(width-w,v.x));v.y=h<=height?(height-h)/2:Math.min(0,Math.max(height-h,v.y));
   c.imageSmoothingQuality='high';c.drawImage(img,v.x,v.y,w,h);
-  // Every 5th row (as the chart will number them) and every 5th stitch from the right, in red.
-  const k=v.scale,C=current.C,cell=w/C;c.strokeStyle='#d0021bcc';c.lineWidth=1.5;c.beginPath();
-  for(const {n,y} of current.rowsAt)if(n%5===0){const py=v.y+(y-UNWARP/2)*k;c.moveTo(v.x,py);c.lineTo(v.x+w,py);}
-  for(let j=5;j<C;j+=5){const x=v.x+w-j*cell;c.moveTo(x,v.y);c.lineTo(x,v.y+h);}c.stroke();
+  // Every 5th row and stitch in red, counted like the chart: rows from the bottom, stitches from the right.
+  const R=current.R,C=current.C,cell=w/C,ch=h/R;c.strokeStyle='#d0021bcc';c.lineWidth=1.5;c.beginPath();
+  for(let i=5;i<R;i+=5){const y=v.y+h-i*ch;c.moveTo(v.x,y);c.lineTo(v.x+w,y);}for(let j=5;j<C;j+=5){const x=v.x+w-j*cell;c.moveTo(x,v.y);c.lineTo(x,v.y+h);}c.stroke();
   c.fillStyle='#f5f7f2';c.fillRect(0,0,gutter,height);c.fillStyle='#52665a';c.font='10px -apple-system, sans-serif';c.textAlign='right';c.textBaseline='middle';
-  for(const {n,y} of current.rowsAt){if(n!==1&&n%5)continue;const py=v.y+y*k;if(py>-10&&py<height+10)c.fillText(String(n),gutter-4,py);}
+  const first=pages.length&&join==='stack'?pages.reduce((n,pg)=>n+pg.R,0):0;
+  for(let i=1;i<=R;i++){const n=first+i;if(n!==1&&n%5)continue;const y=v.y+h-(i-.5)*ch;if(y>-10&&y<height+10)c.fillText(String(n),gutter-4,y);}
  }
  zoomGestures($('scan-grid'),gridView,drawGrid);
  for(const id of ['scan-rows','scan-cols'])$(id).oninput=refit;
  for(const [id,target,d] of [['scan-rows-less','scan-rows',-1],['scan-rows-more','scan-rows',1],['scan-cols-less','scan-cols',-1],['scan-cols-more','scan-cols',1]])
   $(id).onclick=()=>{$(target).value=Math.max(1,Math.min(MAX_COUNT,(count(target)||0)+d));refit();};
  $('scan-page-done').onclick=()=>{
-  if(!current?.unwarp){$('scan-grid-error').textContent='マス目の計算が終わるまでお待ちください。';return;}
-  const page={source:current.source,quad:current.quad,R:current.R,C:current.C,omits:current.omits.map(o=>o.value||0),
-   parts:current.blocks.map(b=>({rgba:current.rgba,width:current.width,height:current.height,mesh:b.mesh,R:b.R,C:current.C,unwarp:b.unwarp}))};
-  if(pages.length===1&&join==='side'&&addAt==='left')pages.unshift(page);else pages.push(page);
+  if(!current?.fit){$('scan-grid-error').textContent='マス目の計算が終わるまでお待ちください。';return;}
+  const page={...current};if(pages.length===1&&join==='side'&&addAt==='left')pages.unshift(page);else pages.push(page);
   if(pages.length===1)join='single';last={source:current.source,quad:current.quad};current=null;source=null;reading=null;showPages();
  };
 
  // ---- 4. pages ----
  function showPages(){
   const total=join==='side'?pages[0].R:pages.reduce((n,pg)=>n+pg.R,0),cols=join==='side'?pages.reduce((n,pg)=>n+pg.C,0):Math.max(...pages.map(pg=>pg.C));
-  const omitted=pages.reduce((n,pg)=>n+(pg.omits||[]).reduce((a,b)=>a+b,0),0);
-  $('scan-summary').textContent=(pages.length===1?`1ページ：${cols}目 × ${total}段`:join==='side'?`左右2ページ：${cols}目 × ${total}段（同じ段が左右に続きます）`:`2ブロック：${pages[0].R}段＋${pages[1].R}段＝${total}段・${cols}目（下のブロックの上に続けます）`)+(omitted?`。省略された${omitted}段を含みます`:'');
+  $('scan-summary').textContent=pages.length===1?`1ページ：${cols}目 × ${total}段`:join==='side'?`左右2ページ：${cols}目 × ${total}段（同じ段が左右に続きます）`:`2ブロック：${pages[0].R}段＋${pages[1].R}段＝${total}段・${cols}目（下のブロックの上に続けます）`;
   $('scan-pages-error').textContent='';$('scan-add-page').hidden=pages.length>=2;$('scan-add-same').hidden=!last?.source||pages.length>=2;$('scan-remove-page').hidden=pages.length<2;step('pages');
  }
  const addPage=(kind,at='right')=>{join=kind;addAt=at;$('scan-page-label').textContent=pageLabel();$('scan-start-error').textContent='';step('start');};
@@ -201,24 +163,22 @@ export function setupScanImport({replace,editable,message}){
  function read(){
   if(reading)return;
   const all=[],at=[];
-  // Every block of every page is read on its own (a unit); unitOf[n][p] finds it again.
-  units=pages.flatMap((pg,n)=>pg.parts.map((part,p)=>({n,p,part})));unitOf=pages.map((pg,n)=>pg.parts.map((_,p)=>units.findIndex(u=>u.n===n&&u.p===p)));
-  units.forEach(({part:pg},n)=>{if(!pg.cells){pg.cells=readCells(pg.rgba,pg.width,pg.height,pg.mesh,pg.R,pg.C);pg.outside=outsideCells(pg.cells,pg.R,pg.C);
+  pages.forEach((pg,n)=>{if(!pg.cells){pg.cells=readCells(pg.rgba,pg.width,pg.height,pg.mesh,pg.R,pg.C);pg.outside=outsideCells(pg.cells,pg.R,pg.C);
     pg.codes=recognize(pg.cells,pg.R,pg.C,pg.outside,{groups:groupShapes(pg.cells,pg.outside),span:spanReader(pg.rgba,pg.width,pg.height,pg.mesh,pg.C,pg.cells)});}
    pg.cells.forEach((c,k)=>{all.push(c);at.push([n,k]);});});
-  const U=units.map(u=>u.part),skip=Uint8Array.from(at,([n,k])=>U[n].outside[k]),detected=groupColours(all,skip);
+  const skip=Uint8Array.from(at,([n,k])=>pages[n].outside[k]),detected=groupColours(all,skip);
   // Unread cells, grouped by shape over all pages, so the same unknown symbol is named once.
-  const unknown=all.map((c,m)=>{const [n,k]=at[m];return U[n].codes[k]==='UNK';}),shapes=groupShapes(all,Uint8Array.from(unknown,u=>u?0:1));
-  const unknownGroup=U.map(pg=>new Int32Array(pg.cells.length).fill(-1));shapes.forEach((g,i)=>g.members.forEach(m=>{const [n,k]=at[m];unknownGroup[n][k]=i;}));
+  const unknown=all.map((c,m)=>{const [n,k]=at[m];return pages[n].codes[k]==='UNK';}),shapes=groupShapes(all,Uint8Array.from(unknown,u=>u?0:1));
+  const unknownGroup=pages.map(pg=>new Int32Array(pg.cells.length).fill(-1));shapes.forEach((g,i)=>g.members.forEach(m=>{const [n,k]=at[m];unknownGroup[n][k]=i;}));
   // Kinds: knit, each symbol, each cable (counted per cable), and each unread shape.
   const kinds=new Map();
-  U.forEach((pg,n)=>pg.codes.forEach((code,k)=>{if(pg.outside[k])return;const part=stitchPart(code);if(part&&part.index>0)return;
+  pages.forEach((pg,n)=>pg.codes.forEach((code,k)=>{if(pg.outside[k])return;const part=stitchPart(code);if(part&&part.index>0)return;
    const key=code==='UNK'?`UNK:${unknownGroup[n][k]}`:part&&part.width>1?part.code:(code??'');
    // The example shown is the cell nearest the middle of the page (the clearest part of a photo).
    const c=pg.cells[k],off=Math.hypot(c.r/pg.R-.5,c.c/pg.C-.5);
    if(!kinds.has(key))kinds.set(key,{key,code:part&&part.width>1?part.code:code,width:part?.width??1,count:0,example:[n,k],off});
    const kind=kinds.get(key);kind.count++;if(off<kind.off){kind.off=off;kind.example=[n,k];}}));
-  reading={all,at,detected,colour:U.map(pg=>new Int32Array(pg.cells.length).fill(0)),unknownGroup,kinds:[...kinds.values()].sort((a,b)=>(a.code==='UNK')-(b.code==='UNK')||b.count-a.count),changed:new Map()};
+  reading={all,at,detected,colour:pages.map(pg=>new Int32Array(pg.cells.length).fill(0)),unknownGroup,kinds:[...kinds.values()].sort((a,b)=>(a.code==='UNK')-(b.code==='UNK')||b.count-a.count),changed:new Map()};
   $('scan-colour-count').value='auto';setColours();
  }
  // The colours the user asked for: as detected, or merged down to a number (a black-and-white chart is one yarn).
@@ -229,7 +189,7 @@ export function setupScanImport({replace,editable,message}){
  }
  $('scan-colour-count').onchange=()=>{if(!reading)return;setColours();showColours();update();};
  function thumb([n,k],w){// The cell (or the whole cable) and the cells beside it, from the straightened page.
-  const pg=units[n].part,c=pg.cells[k],from=Math.max(0,c.c-(w>1?0:1)),cols=Math.min(pg.C-from,Math.max(3,w)),scale=w>2?2:3,canvas=document.createElement('canvas');canvas.width=UNWARP*scale*Math.max(3,w);canvas.height=UNWARP*scale;
+  const pg=pages[n],c=pg.cells[k],from=Math.max(0,c.c-(w>1?0:1)),cols=Math.min(pg.C-from,Math.max(3,w)),scale=w>2?2:3,canvas=document.createElement('canvas');canvas.width=UNWARP*scale*Math.max(3,w);canvas.height=UNWARP*scale;
   const g=canvas.getContext('2d');g.imageSmoothingEnabled=false;g.fillStyle='#ffffff';g.fillRect(0,0,canvas.width,canvas.height);
   g.drawImage(pg.unwarp,from*UNWARP,(pg.R-1-c.r)*UNWARP,cols*UNWARP,UNWARP,0,0,cols*UNWARP*scale,UNWARP*scale);g.strokeStyle='#d0021b';g.lineWidth=3;g.strokeRect((c.c-from)*UNWARP*scale+1.5,1.5,UNWARP*scale*w-3,UNWARP*scale-3);return canvas;
  }
@@ -250,14 +210,14 @@ export function setupScanImport({replace,editable,message}){
    label.append(input,document.createTextNode(`色${i+1}（${c.members.length}マス）`));box.append(label);});
  }
  /** The code of a page cell after the user's changes: a changed kind applies to all its cells (a cable keeps its parts). */
- function codeOf(page,k,p=0){
-  const n=unitOf[page][p],pg=units[n].part,code=pg.codes[k],part=stitchPart(code);
+ function codeOf(n,k){
+  const pg=pages[n],code=pg.codes[k],part=stitchPart(code);
   const key=code==='UNK'?`UNK:${reading.unknownGroup[n][k]}`:part&&part.width>1?part.code:(code??'');
   if(!reading.changed.has(key))return code;const next=reading.changed.get(key)||null;
   if(part&&part.width>1)return next&&stitchDef(next)?.width===part.width?`${next}@${part.index}`:next==='UNK'?'UNK':null;
   return next;
  }
- const build=()=>buildChart({pages,join,codeOf,colourOf:(page,k,p=0)=>reading.colour[unitOf[page][p]][k],colours:reading.yarns.map((y,i)=>({color:y.color,name:`色${i+1}`})),name:$('scan-name').value});
+ const build=()=>buildChart({pages,join,codeOf,colourOf:(n,k)=>reading.colour[n][k],colours:reading.yarns.map((y,i)=>({color:y.color,name:`色${i+1}`})),name:$('scan-name').value});
  function update(){
   try{
    chart=build();

@@ -2,7 +2,6 @@ import {webkit} from '@playwright/test';
 import assert from 'node:assert/strict';
 import sharp from 'sharp';
 import {photograph} from './scan-fixture.mjs';
-import {omissionPhoto,OMIT} from './omission-fixture.mjs';
 const shots=process.env.SCAN_SHOTS;
 const browser=await webkit.launch();
 const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
@@ -88,37 +87,9 @@ try{
  await page.locator('#scan-detect').click();await page.locator('#scan-flatten').click();await page.locator('#scan-page-done:not([disabled])').waitFor();await page.locator('#scan-page-done').click();
  assert.match(await page.locator('#scan-summary').textContent(),/30段＋30段＝60段/);
  await page.locator('#scan-cancel').click();
- // Rows left out in the middle of a ribbing: the band is found, the row numbers predict 9 rows, and they are filled.
- const om=await omissionPhoto();
- await page.locator('#scan-open').click();await page.locator('#scan-dialog[open]').waitFor();
- await page.locator('#scan-library').setInputFiles({name:'rib.jpg',mimeType:'image/jpeg',buffer:om.jpeg});await page.locator('#scan-step-corners:not([hidden])').waitFor();await page.waitForTimeout(200);
- // Find the four yellow handles on the canvas and drag each onto a corner of the whole frame (both blocks).
- const handles=await page.locator('#scan-corners').evaluate(el=>{const g=el.getContext('2d'),d=g.getImageData(0,0,el.width,el.height).data,pts=[];
-  for(let y=0;y<el.height;y+=2)for(let x=0;x<el.width;x+=2){const i=(y*el.width+x)*4;if(d[i]>235&&d[i+1]>200&&d[i+2]<80)pts.push([x,y]);}
-  // A handle is a ring: the densest yellow spots (the frame's outline is a thin line), four of them far apart.
-  const dense=pts.map(p=>({p,n:pts.filter(q=>Math.abs(q[0]-p[0])<14&&Math.abs(q[1]-p[1])<14).length})).sort((a,b)=>b.n-a.n),picked=[];
-  for(const {p} of dense){if(picked.every(q=>Math.hypot(q[0]-p[0],q[1]-p[1])>60))picked.push(p);if(picked.length===4)break;}
-  // Centre each on the yellow pixels around it.
-  const r=el.getBoundingClientRect(),k=r.width/el.width;return picked.map(p=>{const near=pts.filter(q=>Math.hypot(q[0]-p[0],q[1]-p[1])<16);return [r.x+near.reduce((s,q)=>s+q[0],0)/near.length*k,r.y+near.reduce((s,q)=>s+q[1],0)/near.length*k];});});
- const cbox=await page.locator('#scan-corners').boundingBox(),ck=Math.min(cbox.width/om.width,cbox.height/om.height),cox=cbox.x+(cbox.width-om.width*ck)/2,coy=cbox.y+(cbox.height-om.height*ck)/2;
- const targets=om.quad.map(([x,y])=>[cox+x*ck,coy+y*ck]),cx=handles.reduce((s,h)=>s+h[0],0)/4,cy=handles.reduce((s,h)=>s+h[1],0)/4;
- const order=[h=>h[0]<cx&&h[1]<cy,h=>h[0]>=cx&&h[1]<cy,h=>h[0]>=cx&&h[1]>=cy,h=>h[0]<cx&&h[1]>=cy];
- for(let i=0;i<4;i++){const from=handles.find(order[i]);await page.locator('#scan-corners').evaluate((el,[from,to])=>{const ev=(type,[x,y])=>el.dispatchEvent(new PointerEvent(type,{pointerId:7,clientX:x,clientY:y,bubbles:true,pointerType:'touch',isPrimary:true}));ev('pointerdown',from);ev('pointermove',to);ev('pointerup',to);},[from,targets[i]]);}
- await page.locator('#scan-flatten').click();await page.locator('#scan-step-grid:not([hidden])').waitFor();await page.locator('#scan-page-done:not([disabled])').waitFor();
- assert.match(await page.locator('#scan-detected').textContent(),/段の省略が1か所/);assert(await page.locator('#scan-rows-step').isHidden());
- assert.equal(await page.locator('#scan-block-rows-1').inputValue(),String(OMIT.upper));assert.equal(await page.locator('#scan-block-rows-0').inputValue(),String(OMIT.lower));
- assert.equal(await page.locator('#scan-omit-0').inputValue(),'9');assert.match(await page.locator('#scan-omit-note-0').textContent(),/9段と予測/);
- await shot('5-omission');
- await page.locator('#scan-page-done').click();await page.locator('#scan-step-pages:not([hidden])').waitFor();assert.match(await page.locator('#scan-summary').textContent(),/20目 × 20段。省略された9段を含みます/);
- await page.locator('#scan-to-symbols').click();await page.locator('#scan-step-symbols:not([hidden])').waitFor();
- await page.locator('#scan-colour-count').selectOption('1');await page.locator('#scan-name').fill('ゴム編み');await page.locator('#scan-start').click();await page.waitForTimeout(300);
- const rib=await read();assert.equal(rib.rows,20);assert.equal(rib.columns,OMIT.cols);
- const pattern=r=>rib.symbols[r].map(s=>s??'.').join('');assert.ok(pattern(0).includes('P'),'purl in the ribbing');
- for(let r=1;r<20;r++)assert.equal(pattern(r),pattern(0),`row ${r+1} is the same 1x1 ribbing (rows 6-14 filled in)`);
- await page.locator('[data-view=settings]').click();
  // Undo returns to the converted chart after a new blank one.
  await page.locator('#new-project').click();await page.waitForTimeout(200);assert.equal((await read()).rows,20);
- await page.locator('[data-view=both]').click();await page.locator('#undo').click();await page.waitForTimeout(200);assert.equal((await read()).name,'ゴム編み');
+ await page.locator('[data-view=both]').click();await page.locator('#undo').click();await page.waitForTimeout(200);assert.equal((await read()).name,'テストのセーター');
  assert.deepEqual(errors,[]);assert.deepEqual(remote,[]);
  console.log('native scan UI: ok');
 }finally{await browser.close();}

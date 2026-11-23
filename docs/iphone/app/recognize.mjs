@@ -86,7 +86,7 @@ export function gridLinesOnly(ink,N=Math.round(Math.sqrt(ink.length))){
    const offs=pts.map(([x,y])=>x*nx+y*ny),lo=Math.floor(Math.min(...offs)),hi=Math.ceil(Math.max(...offs));
    for(let o=lo;o<=hi;o+=.5){const on=pts.filter((_,i)=>Math.abs(offs[i]-o)<=1.6);if(!best||on.length>best.on.length)best={on,a};}}
   const along=best.on.map(([x,y])=>x*Math.cos(best.a)+y*Math.sin(best.a)),span=Math.max(...along)-Math.min(...along);
-  if(best.on.length<pts.length*.35||span<N*.82)return false;
+  if(best.on.length<pts.length*.35||span<N*.75)return false;
   const set=new Set(best.on);pts=pts.filter(p=>!set.has(p));
  }
  return pts.length<=2;

@@ -78,4 +78,3 @@ h1{font-size:24px}
 .scan-note:empty{display:none}.scan-note{color:var(--sage)!important}
 #scan-colours{display:flex;flex-wrap:wrap;gap:8px}.scan-colour{display:flex;align-items:center;gap:6px;font-size:12px;margin:0}.scan-colour input{width:40px;height:40px;padding:0;border:1px solid var(--line);border-radius:50%}
 .scan-unknown p{color:#8d1735}.scan-group-pics canvas{width:auto;max-width:150px;height:36px}
-#scan-blocks .scan-omit{background:#f8e6d8;border-radius:10px;padding:4px}#scan-blocks .hint{margin:0 0 8px}
