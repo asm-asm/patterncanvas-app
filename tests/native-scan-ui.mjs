@@ -49,12 +49,14 @@ try{
  assert.equal(await page.locator('#scan-summary').textContent(),'1ページ：24目 × 30段');
  // Symbols and colours.
  await page.locator('#scan-to-symbols').click();await page.locator('#scan-step-symbols:not([hidden])').waitFor();
- const groups=page.locator('#scan-groups .scan-group');assert.ok(await groups.count()>=3,'blank + at least two shapes');
- assert.match(await groups.first().textContent(),/記号のないマス/);assert.equal(await groups.first().locator('select').inputValue(),'');
+ // Read automatically: knit and purl come out as such; the fixture's one-cell 「×」 is no Japanese symbol, so it is listed
+ // as an unread shape, to be named once.
+ const kinds=page.locator('#scan-groups .scan-group');assert.match(await page.locator('#scan-symbols-summary').textContent(),/自動で読み取りました/);
+ assert.match(await kinds.first().textContent(),/記号なし（表目）/);assert.equal(await kinds.first().locator('select').inputValue(),'');
+ const purl=kinds.filter({hasText:'裏目（'});assert.equal(await purl.count(),1);assert.equal(await purl.locator('select').inputValue(),'P');
  assert.match(await page.locator('#scan-result').textContent(),/^24目 × 30段・2色。「？」のマス/);
- // Name the two biggest shapes; the preview and the counts follow.
- await groups.nth(1).locator('select').selectOption('P');await groups.nth(2).locator('select').selectOption('TBL');
- const others=await groups.count();for(let i=3;i<others;i++)await groups.nth(i).locator('select').selectOption('P');
+ const unknown=page.locator('#scan-groups .scan-unknown');assert.ok(await unknown.count()>=1,'the crosses are an unread shape');
+ for(let i=await unknown.count()-1;i>=0;i--)await unknown.nth(i).locator('select').selectOption('TBL');
  assert.match(await page.locator('#scan-result').textContent(),/すべてのマスに記号が入りました/);
  assert.ok((await page.locator('#scan-preview').boundingBox()).height>200,'chart preview drawn');
  await page.locator('#scan-colour-count').selectOption('1');assert.match(await page.locator('#scan-result').textContent(),/・1色。/);assert.equal(await page.locator('#scan-colours label').count(),1);
@@ -66,7 +68,7 @@ try{
  await page.locator('#scan-dialog:not([open])').waitFor({state:'attached'});
  // The result is an ordinary chart: editable cells, symbols, two yarns, the usual counter.
  let saved=await read();assert.equal(saved.name,'テストのセーター');assert.equal(saved.columns,24);assert.equal(saved.rows,30);assert.equal(saved.yarns.length,2);assert.equal(saved.scan,undefined);
- const symbols=saved.symbols.flat();assert.ok(symbols.filter(s=>s==='P').length>50&&symbols.filter(s=>s==='TBL').length>20&&!symbols.includes('UNK'));
+ const symbols=saved.symbols.flat();assert.ok(symbols.filter(s=>s==='P').length>50,'purl read automatically');assert.ok(symbols.filter(s=>s==='TBL').length>20,'the named shape');assert.ok(!symbols.includes('UNK'));
  assert.ok(saved.cells.flat().filter(c=>c===1).length>100,'shaded block is the second yarn');
  assert(await page.locator('#chart-panel').isVisible());assert(await page.locator('#preview-panel').isVisible());
  assert.match(await page.locator('#message').textContent(),/本の編み図を取り込みました/);

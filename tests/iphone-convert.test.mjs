@@ -1,6 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {rectify,grayscale} from '../docs/iphone/app/scan-model.mjs';
-import {analyzeGrid,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,buildChart,hex,lineOnly as groupLineOnly} from '../docs/iphone/app/chart-convert.mjs';
+import {analyzeGrid,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,buildChart,hex,lineOnly as groupLineOnly,CELL as SAMPLES} from '../docs/iphone/app/chart-convert.mjs';
 import {STITCHES,STITCH_CELL_CODES,stitchPart,mirrorStitch,cellCodes} from '../docs/iphone/app/stitches.mjs';
 import * as M from '../docs/iphone/app/model.mjs';
 import {photograph,truthSymbol,truthShaded} from './scan-fixture.mjs';
@@ -26,7 +26,7 @@ test('rows and stitches are counted on a bent page, in both directions',()=>{
 test('every cell is read from its own place: symbols sit in the middle of their cell',()=>{
  // A purl dash is a short level stroke across the middle; reading the wrong cell would put it at an edge or miss it.
  let hits=0,total=0;
- for(const cell of page.cells){if(symbolOf(cell)!=='−')continue;total++;const ink=cell.ink,mid=[5,6].map(j=>ink.slice(j*12,j*12+12).reduce((a,b)=>a+b,0)),edge=[0,1,10,11].map(j=>ink.slice(j*12,j*12+12).reduce((a,b)=>a+b,0));if(Math.max(...mid)>2&&Math.max(...edge)<1)hits++;}
+ for(const cell of page.cells){if(symbolOf(cell)!=='−')continue;total++;const ink=cell.ink,mid=[7,8].map(j=>ink.slice(j*SAMPLES,j*SAMPLES+SAMPLES).reduce((a,b)=>a+b,0)),edge=[0,1,SAMPLES-2,SAMPLES-1].map(j=>ink.slice(j*SAMPLES,j*SAMPLES+SAMPLES).reduce((a,b)=>a+b,0));if(Math.max(...mid)>2&&Math.max(...edge)<1)hits++;}
  // Misses are cells beside a thick 5-row line (its edge shows inside the cell) and the outermost column, which the
  // curl pushes partly outside the frame.
  assert.ok(total>50);assert.ok(hits/total>.85,`${hits}/${total} dashes centred`);
@@ -115,12 +115,12 @@ test('the chart model places, clears, flips and saves the new symbols',()=>{
 });
 
 test('a straight line right across a cell is a grid line, not a symbol',()=>{
- const make=f=>Float32Array.from({length:144},(_,k)=>f(k%12,Math.floor(k/12))?1:0);
+ const make=f=>Float32Array.from({length:SAMPLES*SAMPLES},(_,k)=>f(k%SAMPLES,Math.floor(k/SAMPLES))?1:0);
  const vertical=make((i)=>i===3),dash=make((i,j)=>j===6&&i>2&&i<9),cross=make((i,j)=>Math.abs(i-j)<1||Math.abs(11-i-j)<1);
  assert.equal(groupLineOnly([vertical,vertical]),true);assert.equal(groupLineOnly([make((i,j)=>j===9)]),true);
  assert.equal(groupLineOnly([dash]),false);assert.equal(groupLineOnly([cross]),false);
 });
 test('a doubled border line is a grid line too',()=>{
- const make=f=>Float32Array.from({length:144},(_,k)=>f(k%12,Math.floor(k/12))?1:0);
- assert.equal(groupLineOnly([make(i=>i===2||i===7)]),true);assert.equal(groupLineOnly([make((i,j)=>i===2||(j===6&&i>3&&i<9))]),false);
+ const make=f=>Float32Array.from({length:SAMPLES*SAMPLES},(_,k)=>f(k%SAMPLES,Math.floor(k/SAMPLES))?1:0);
+ assert.equal(groupLineOnly([make(i=>i===2||i===9)]),true);assert.equal(groupLineOnly([make((i,j)=>i===2||(j===8&&i>3&&i<11))]),false);
 });

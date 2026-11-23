@@ -1,6 +1,7 @@
 import {analyzePage,fitPage,linesAt} from './scan-model.mjs';
 import {blank} from './model.mjs';
-import {stitchDef,cellCodes} from './stitches.mjs';
+import {stitchDef,cellCodes,stitchPart} from './stitches.mjs';
+import {INSET,shapeOf,distance} from './recognize.mjs';
 
 // A photographed book chart → an editable chart. The page is assumed to be bent and sagging, not flat:
 // 1. the four corners remove the perspective (scan-model.mjs rectify);
@@ -12,8 +13,7 @@ import {stitchDef,cellCodes} from './stitches.mjs';
 //    yarns. Cells outside a shaped outline (no grid lines around them) become "no stitch".
 // Everything is deterministic and on the device; nothing is recognised by a model.
 
-export const CELL=12;             // ink samples per cell side
-const INSET=.16;                  // keep clear of the grid lines when reading a cell
+export const CELL=16;             // ink samples per cell side (the grid lines next to the sides are not read: INSET)
 
 /** Transposed copy of a grey image, so column lines can be found with the row-line code. */
 export function transpose(gray,width,height){const t=new Float32Array(width*height);for(let y=0;y<height;y++)for(let x=0;x<width;x++)t[x*height+y]=gray[y*width+x];return t;}
@@ -91,6 +91,18 @@ export function readCells(rgba,width,height,mesh,R,C){
  }
  return cells;
 }
+/**
+ * Ink anywhere across a run of cells, for telling cables apart: (r, first stitch c0, width w) → (x, y) with x 0..w
+ * across the run and y 0..1 down. Unlike readCells it also reads next to the cell sides, where the strands of a
+ * one-stitch cable cross; only the thin band of the printed stitch lines is skipped (null).
+ */
+export function spanReader(rgba,width,height,mesh,C,cells){
+ const px=new Float32Array(3);
+ return (r,c0,w)=>{const ground=cells.slice(r*C+c0,r*C+c0+w).reduce((s,c)=>s+c.ground,0)/w,scale=Math.max(45,ground*.45);
+  return (x,y)=>{if(x<0||x>w||y<.07||y>.93)return null;const j=Math.min(w-1,Math.floor(x)),u=x-j;if(Math.abs(x-Math.round(x))<.06)return null;
+   const [px0,py0]=cellPoint(mesh,C,r,c0+j,u,1-y,width,height);sample(rgba,width,height,px0,py0,px,0);const d=(ground-luma(px[0],px[1],px[2]))/scale;return d>.25?Math.min(1,d):0;};};
+}
+
 /** Darkness of the printed line along each side of a cell (bottom, top, left, right) against the cell's inside. */
 function sides(rgba,width,height,mesh,C,r,c){
  const px=new Float32Array(3),L=(u,v)=>{const [x,y]=cellPoint(mesh,C,r,c,u,v,width,height);sample(rgba,width,height,x,y,px,0);return luma(px[0],px[1],px[2]);};
@@ -112,27 +124,13 @@ export function outsideCells(cells,R,C){
 }
 
 /**
- * Ink maps moved so their centre of ink sits in the middle (by up to 2 samples: a symbol printed or read a little off
- * centre), then softened by one sample, so the same symbol matches wherever it sits in its cell.
- */
-function centred(ink){
- let s=0,sx=0,sy=0;for(let j=0;j<CELL;j++)for(let i=0;i<CELL;i++){const v=ink[j*CELL+i];s+=v;sx+=v*i;sy+=v*j;}
- if(!s)return ink;const dx=Math.max(-2,Math.min(2,Math.round((CELL-1)/2-sx/s))),dy=Math.max(-2,Math.min(2,Math.round((CELL-1)/2-sy/s))),o=new Float32Array(ink.length);
- for(let j=0;j<CELL;j++)for(let i=0;i<CELL;i++){const a=i-dx,b=j-dy;if(a>=0&&b>=0&&a<CELL&&b<CELL)o[j*CELL+i]=ink[b*CELL+a];}
- return o;
-}
-/** Ink maps softened by one sample, so a line drawn a little off the cell centre still matches. */
-function soften(ink){const o=new Float32Array(ink.length);for(let j=0;j<CELL;j++)for(let i=0;i<CELL;i++){let s=0,n=0;for(let dj=-1;dj<=1;dj++)for(let di=-1;di<=1;di++){const a=i+di,b=j+dj;if(a>=0&&b>=0&&a<CELL&&b<CELL){const w=di||dj?.5:1;s+=ink[b*CELL+a]*w;n+=w;}}o[j*CELL+i]=s/n;}return o;}
-const distance=(a,b)=>{let s=0;for(let k=0;k<a.length;k++)s+=Math.abs(a[k]-b[k]);return s/a.length;};
-
-/**
  * Group the inked cells by shape: a new group starts when a cell is unlike every group so far, then each cell moves to
  * its nearest group centre (three rounds). Group 0 is always the blank cells. Biggest groups first.
  */
 export function groupShapes(cells,skip=new Uint8Array(cells.length),threshold=.09){
- // Shapes only: each ink map scaled to its darkest stroke, so a symbol on a shaded ground or in dim light matches the
- // same symbol on white.
- const shapes=cells.map(c=>{const top=Math.max(...c.ink);return soften(centred(top>0?c.ink.map(v=>v/top):c.ink));}),blankIndex=[],inked=[];
+ // Shapes only: each ink map centred and scaled to its darkest stroke, so a symbol on a shaded ground or in dim light
+ // matches the same symbol on white.
+ const shapes=cells.map(c=>shapeOf(c.ink)),blankIndex=[],inked=[];
  cells.forEach((c,k)=>{if(skip[k])return;(c.amount<.02?blankIndex:inked).push(k);});
  let centres=[];
  for(const k of inked){let best=Infinity;for(const m of centres)best=Math.min(best,distance(shapes[k],m.sum.map(v=>v/m.n)));if(best>threshold&&centres.length<60)centres.push({sum:Float32Array.from(shapes[k]),n:1});else{const m=centres.reduce((a,m)=>distance(shapes[k],m.sum.map(v=>v/m.n))<distance(shapes[k],a.sum.map(v=>v/a.n))?m:a);for(let i=0;i<m.sum.length;i++)m.sum[i]+=shapes[k][i];m.n++;}}
@@ -222,7 +220,7 @@ export const hex=rgb=>'#'+rgb.map(v=>Math.max(0,Math.min(255,Math.round(v))).toS
  * blocks are padded with no-stitch cells on the right). shapeOf/colourOf map a page cell to its group/colour index;
  * names: group index → symbol code or null (knit). A cable named on a group is placed with that cell as its left end.
  */
-export function buildChart({pages,join,shapeOf,colourOf,names,colours,name='本の編み図'}){
+export function buildChart({pages,join,shapeOf:groupOf,colourOf,names,codeOf,colours,name='本の編み図'}){
  const rows=join==='side'?pages[0].R:pages.reduce((n,pg)=>n+pg.R,0),cols=join==='side'?pages.reduce((n,pg)=>n+pg.C,0):Math.max(...pages.map(pg=>pg.C));
  if(rows<1||cols<1||rows>2000||cols>2000)throw Error('編み図は最大2000目・2000段です');
  const p=blank(cols,rows);p.name=String(name).trim().slice(0,100)||'本の編み図';
@@ -231,8 +229,10 @@ export function buildChart({pages,join,shapeOf,colourOf,names,colours,name='本�
  let rowOffset=0,colOffset=0;
  pages.forEach((pg,n)=>{
   for(let r=0;r<pg.R;r++)for(let c=0;c<pg.C;c++){const k=r*pg.C+c;if(pg.outside[k])continue;p.cells[rowOffset+r][colOffset+c]=colourOf(n,k);}
+  // Either every cell's code is given (codeOf: a cell code, a cable part CODE@i, or null), or a symbol per shape group.
+  if(codeOf){for(let r=0;r<pg.R;r++)for(let c=0;c<pg.C;c++){const k=r*pg.C+c;if(pg.outside[k])continue;const code=codeOf(n,k);if(code&&(stitchPart(code)||stitchDef(code)?.width===1||!stitchDef(code)))p.symbols[rowOffset+r][colOffset+c]=code;}if(join==='side')colOffset+=pg.C;else rowOffset+=pg.R;return;}
   for(let r=0;r<pg.R;r++)for(let c=0;c<pg.C;c++){const k=r*pg.C+c,R=rowOffset+r,X=colOffset+c;if(pg.outside[k]||p.symbols[R][X]!==null)continue;
-   const code=names[shapeOf(n,k)]??null;if(!code)continue;const def=stitchDef(code);if(!def)continue;
+   const code=names[groupOf(n,k)]??null;if(!code)continue;const def=stitchDef(code);if(!def)continue;
    if(def.width===1){p.symbols[R][X]=code;continue;}
    const parts=cellCodes(code);if(X+parts.length>cols||parts.some((_,i)=>p.cells[R][X+i]===null||p.symbols[R][X+i]!==null))continue;
    parts.forEach((part,i)=>{p.symbols[R][X+i]=part;});c+=parts.length-1;}

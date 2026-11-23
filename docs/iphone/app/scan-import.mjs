@@ -1,6 +1,7 @@
 import {rectify,grayscale,detectGrid,insetQuad,checkQuad,SCAN_MAX_ROWS} from './scan-model.mjs';
-import {analyzeGrid,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,hex} from './chart-convert.mjs';
-import {STITCHES,stitchPart} from './stitches.mjs';
+import {analyzeGrid,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
+import {STITCHES,stitchPart,stitchDef} from './stitches.mjs';
+import {recognize} from './recognize.mjs';
 import {INCREASES} from './model.mjs';
 import {draw,sizeCanvas,CHART_GUTTER,CHART_HEADER,CHART_FOOTER} from './draw.mjs';
 
@@ -8,7 +9,6 @@ import {draw,sizeCanvas,CHART_GUTTER,CHART_HEADER,CHART_FOOTER} from './draw.mjs
 // check the straightened grid and its row/stitch counts, join the pages of a spread, name each symbol shape once, and
 // get an ordinary editable chart (yarn colours + knitting symbols). Everything stays on the device.
 const SOURCE_LONG=3200,DETECT_LONG=640,HANDLE=36,LOUPE=112,ZOOM=3,CORNERS=['左上','右上','右下','左下'],UNWARP=16,MAX_COUNT=SCAN_MAX_ROWS;
-const SMALL=3; // shapes seen on fewer cells than this are listed together
 
 /** One finger pans, two fingers (or the wheel) zoom. view: {scale,x,y,min,max}; screen = image*scale + offset. */
 function zoomGestures(canvas,view,onChange){
@@ -151,20 +151,34 @@ export function setupScanImport({replace,editable,message}){
  $('scan-remove-page').onclick=()=>{pages=join==='side'&&addAt==='left'?pages.slice(1):pages.slice(0,1);join='single';reading=null;showPages();};
 
  // ---- 5. symbols and colours ----
- const choices=[['','記号なし（表目）'],['UNK','わからない（？で残す）'],['CONT','交差の続き（左のマスで指定）'],...STITCHES.filter(s=>s.code!=='UNK').map(s=>[s.code,s.width>1?`${s.name}（${s.width}目・このマスが左端）`:s.name]),...INCREASES.map(s=>[s.code,`${s.name}（${s.code}）`])];
+ // Every cell is read automatically (recognize.mjs). The results are listed by kind of symbol; changing a kind changes
+ // every cell of it. Shapes that matched no symbol are listed by shape so each can be named once.
+ const SINGLE_CHOICES=[['','記号なし（表目）'],['UNK','わからない（？で残す）'],...STITCHES.filter(s=>s.width===1&&s.code!=='UNK').map(s=>[s.code,s.name]),...INCREASES.map(s=>[s.code,`${s.name}（${s.code}）`])];
+ const cableChoices=w=>[...STITCHES.filter(s=>s.width===w).map(s=>[s.code,s.name]),['UNK','交差ではない（？で残す）']];
+ const nameOf=code=>code===null?'記号なし（表目）':code==='UNK'?'読み取れなかった形':(stitchDef(code)?.name??INCREASES.find(s=>s.code===code)?.name??code);
  $('scan-to-symbols').onclick=()=>{
-  $('scan-to-symbols').disabled=true;$('scan-to-symbols').textContent='マスを読んでいます…';
-  setTimeout(()=>{try{read();step('symbols');showSymbols();}catch(error){$('scan-pages-error').textContent=error.message;}finally{$('scan-to-symbols').disabled=false;$('scan-to-symbols').textContent='次へ：記号と色を設定';}},30);
+  $('scan-to-symbols').disabled=true;$('scan-to-symbols').textContent='記号を読み取っています…';
+  setTimeout(()=>{try{read();step('symbols');showSymbols();}catch(error){$('scan-pages-error').textContent=error.message;}finally{$('scan-to-symbols').disabled=false;$('scan-to-symbols').textContent='次へ：記号と色を確かめる';}},30);
  };
  function read(){
   if(reading)return;
-  const all=[],at=[];pages.forEach((pg,n)=>{if(!pg.cells){pg.cells=readCells(pg.rgba,pg.width,pg.height,pg.mesh,pg.R,pg.C);pg.outside=outsideCells(pg.cells,pg.R,pg.C);}pg.cells.forEach((c,k)=>{all.push(c);at.push([n,k]);});});
-  const skip=Uint8Array.from(at,([n,k])=>pages[n].outside[k]),groups=groupShapes(all,skip),detected=groupColours(all,skip);
-  const shape=pages.map(pg=>new Int32Array(pg.cells.length).fill(-1)),colour=pages.map(pg=>new Int32Array(pg.cells.length).fill(0));
-  groups.forEach((g,i)=>g.members.forEach(m=>{const [n,k]=at[m];shape[n][k]=i;}));
-  // Rare shapes share one entry; the blank group is always first and means a knit stitch.
-  const small=groups.map((g,i)=>i>0&&g.members.length<SMALL);
-  reading={all,at,groups,detected,shape,colour,small,names:groups.map((g,i)=>i===0||g.lineOnly?'':'UNK'),chosen:groups.map((g,i)=>i===0||g.lineOnly)};
+  const all=[],at=[];
+  pages.forEach((pg,n)=>{if(!pg.cells){pg.cells=readCells(pg.rgba,pg.width,pg.height,pg.mesh,pg.R,pg.C);pg.outside=outsideCells(pg.cells,pg.R,pg.C);
+    pg.codes=recognize(pg.cells,pg.R,pg.C,pg.outside,{groups:groupShapes(pg.cells,pg.outside),span:spanReader(pg.rgba,pg.width,pg.height,pg.mesh,pg.C,pg.cells)});}
+   pg.cells.forEach((c,k)=>{all.push(c);at.push([n,k]);});});
+  const skip=Uint8Array.from(at,([n,k])=>pages[n].outside[k]),detected=groupColours(all,skip);
+  // Unread cells, grouped by shape over all pages, so the same unknown symbol is named once.
+  const unknown=all.map((c,m)=>{const [n,k]=at[m];return pages[n].codes[k]==='UNK';}),shapes=groupShapes(all,Uint8Array.from(unknown,u=>u?0:1));
+  const unknownGroup=pages.map(pg=>new Int32Array(pg.cells.length).fill(-1));shapes.forEach((g,i)=>g.members.forEach(m=>{const [n,k]=at[m];unknownGroup[n][k]=i;}));
+  // Kinds: knit, each symbol, each cable (counted per cable), and each unread shape.
+  const kinds=new Map();
+  pages.forEach((pg,n)=>pg.codes.forEach((code,k)=>{if(pg.outside[k])return;const part=stitchPart(code);if(part&&part.index>0)return;
+   const key=code==='UNK'?`UNK:${unknownGroup[n][k]}`:part&&part.width>1?part.code:(code??'');
+   // The example shown is the cell nearest the middle of the page (the clearest part of a photo).
+   const c=pg.cells[k],off=Math.hypot(c.r/pg.R-.5,c.c/pg.C-.5);
+   if(!kinds.has(key))kinds.set(key,{key,code:part&&part.width>1?part.code:code,width:part?.width??1,count:0,example:[n,k],off});
+   const kind=kinds.get(key);kind.count++;if(off<kind.off){kind.off=off;kind.example=[n,k];}}));
+  reading={all,at,detected,colour:pages.map(pg=>new Int32Array(pg.cells.length).fill(0)),unknownGroup,kinds:[...kinds.values()].sort((a,b)=>(a.code==='UNK')-(b.code==='UNK')||b.count-a.count),changed:new Map()};
   $('scan-colour-count').value='auto';setColours();
  }
  // The colours the user asked for: as detected, or merged down to a number (a black-and-white chart is one yarn).
@@ -174,21 +188,20 @@ export function setupScanImport({replace,editable,message}){
   colours.forEach((c,i)=>c.members.forEach(m=>{const [p,k]=reading.at[m];reading.colour[p][k]=i;}));
  }
  $('scan-colour-count').onchange=()=>{if(!reading)return;setColours();showColours();update();};
- function thumb(m){// The cell and the two to its right, from the straightened page.
-  const [n,k]=reading.at[m],pg=pages[n],c=pg.cells[k],canvas=document.createElement('canvas'),w=Math.min(3,pg.C-c.c);canvas.width=UNWARP*3*3;canvas.height=UNWARP*3;
+ function thumb([n,k],w){// The cell (or the whole cable) and the cells beside it, from the straightened page.
+  const pg=pages[n],c=pg.cells[k],from=Math.max(0,c.c-(w>1?0:1)),cols=Math.min(pg.C-from,Math.max(3,w)),scale=w>2?2:3,canvas=document.createElement('canvas');canvas.width=UNWARP*scale*Math.max(3,w);canvas.height=UNWARP*scale;
   const g=canvas.getContext('2d');g.imageSmoothingEnabled=false;g.fillStyle='#ffffff';g.fillRect(0,0,canvas.width,canvas.height);
-  g.drawImage(pg.unwarp,c.c*UNWARP,(pg.R-1-c.r)*UNWARP,w*UNWARP,UNWARP,0,0,w*UNWARP*3,UNWARP*3);g.strokeStyle='#d0021b';g.lineWidth=3;g.strokeRect(1.5,1.5,UNWARP*3-3,UNWARP*3-3);return canvas;
+  g.drawImage(pg.unwarp,from*UNWARP,(pg.R-1-c.r)*UNWARP,cols*UNWARP,UNWARP,0,0,cols*UNWARP*scale,UNWARP*scale);g.strokeStyle='#d0021b';g.lineWidth=3;g.strokeRect((c.c-from)*UNWARP*scale+1.5,1.5,UNWARP*scale*w-3,UNWARP*scale-3);return canvas;
  }
- function select(value,onchange){const s=document.createElement('select');for(const [v,label] of choices){const o=document.createElement('option');o.value=v;o.textContent=label;s.append(o);}s.value=value;s.onchange=()=>onchange(s.value);return s;}
+ function select(choices,value,onchange){const s=document.createElement('select');for(const [v,label] of choices){const o=document.createElement('option');o.value=v;o.textContent=label;s.append(o);}s.value=value;s.onchange=()=>onchange(s.value);return s;}
  function showSymbols(){
   const list=$('scan-groups');list.replaceChildren();
-  const smallIdx=reading.small.map((s,i)=>s?i:-1).filter(i=>i>=0);
-  const row=(cells,label,value,onchange,note)=>{const item=document.createElement('div');item.className='scan-group';const pics=document.createElement('div');pics.className='scan-group-pics';for(const m of cells)if(m!=null)pics.append(thumb(m));
-   const text=document.createElement('div');const p=document.createElement('p');p.textContent=label;text.append(p,select(value,onchange));if(note!==undefined){const n=document.createElement('p');n.className='hint scan-note';n.dataset.note=note;text.append(n);}item.append(pics,text);list.append(item);};
-  reading.groups.forEach((g,i)=>{if(reading.small[i]||!g.members.length)return;
-   row([g.example],i===0?`記号のないマス（${g.members.length}マス）`:g.lineOnly?`マス目の線だけのマス（${g.members.length}マス）`:`この形のマス（${g.members.length}マス）`,reading.names[i],v=>{reading.names[i]=v;reading.chosen[i]=true;update();},String(i));});
-  if(smallIdx.length){const count=smallIdx.reduce((n,i)=>n+reading.groups[i].members.length,0);
-   row(smallIdx.slice(0,4).map(i=>reading.groups[i].example),`そのほかの形（${smallIdx.length}種類・${count}マス）`,'UNK',v=>{for(const i of smallIdx){reading.names[i]=v;reading.chosen[i]=true;}update();});}
+  for(const kind of reading.kinds){const item=document.createElement('div');item.className='scan-group'+(kind.code==='UNK'?' scan-unknown':'');const pics=document.createElement('div');pics.className='scan-group-pics';pics.append(thumb(kind.example,kind.width));
+   const text=document.createElement('div'),p=document.createElement('p');p.textContent=kind.code==='UNK'?`読み取れなかった形（${kind.count}マス）`:`${nameOf(kind.code)}（${kind.count}${kind.width>1?'か所':'マス'}）`;
+   const value=reading.changed.get(kind.key)??(kind.code??'');
+   text.append(p,select(kind.width>1?cableChoices(kind.width):SINGLE_CHOICES,value,v=>{reading.changed.set(kind.key,v);update();}));item.append(pics,text);list.append(item);}
+  const unknown=reading.kinds.filter(k=>k.code==='UNK').reduce((n,k)=>n+k.count,0);
+  $('scan-symbols-summary').textContent=unknown?`記号を自動で読み取りました。違うものだけ選び直してください。読み取れなかった形が${unknown}マスあります。`:'記号を自動で読み取りました。違うものだけ選び直してください。';
   showColours();update();
  }
  function showColours(){
@@ -196,18 +209,20 @@ export function setupScanImport({replace,editable,message}){
   reading.colours.forEach((c,i)=>{const label=document.createElement('label');label.className='scan-colour';const input=document.createElement('input');input.type='color';input.value=reading.yarns[i].color;input.oninput=()=>{reading.yarns[i].color=input.value;update();};
    label.append(input,document.createTextNode(`色${i+1}（${c.members.length}マス）`));box.append(label);});
  }
- const build=()=>buildChart({pages,join,shapeOf:(n,k)=>reading.shape[n][k],colourOf:(n,k)=>reading.colour[n][k],names:reading.names,colours:reading.yarns.map((y,i)=>({color:y.color,name:`色${i+1}`})),name:$('scan-name').value});
+ /** The code of a page cell after the user's changes: a changed kind applies to all its cells (a cable keeps its parts). */
+ function codeOf(n,k){
+  const pg=pages[n],code=pg.codes[k],part=stitchPart(code);
+  const key=code==='UNK'?`UNK:${reading.unknownGroup[n][k]}`:part&&part.width>1?part.code:(code??'');
+  if(!reading.changed.has(key))return code;const next=reading.changed.get(key)||null;
+  if(part&&part.width>1)return next&&stitchDef(next)?.width===part.width?`${next}@${part.index}`:next==='UNK'?'UNK':null;
+  return next;
+ }
+ const build=()=>buildChart({pages,join,codeOf,colourOf:(n,k)=>reading.colour[n][k],colours:reading.yarns.map((y,i)=>({color:y.color,name:`色${i+1}`})),name:$('scan-name').value});
  function update(){
   try{
    chart=build();
-   // A shape that ends up inside cables placed from another shape is the rest of those cables.
-   const offsetR=n=>join==='side'?0:pages.slice(0,n).reduce((s,pg)=>s+pg.R,0),offsetC=n=>join==='side'?pages.slice(0,n).reduce((s,pg)=>s+pg.C,0):0;
-   reading.groups.forEach((g,i)=>{if(i===0||reading.chosen[i])return;let inside=0;for(const m of g.members){const [n,k]=reading.at[m],{r,c}=pages[n].cells[k];if((stitchPart(chart.symbols[r+offsetR(n)][c+offsetC(n)])?.index??0)>0)inside++;}
-    reading.names[i]=inside>=g.members.length*.6?'CONT':'UNK';});
-   chart=build();
-   document.querySelectorAll('#scan-groups .scan-group').forEach(item=>{const note=item.querySelector('[data-note]'),s=item.querySelector('select');if(!note)return;const i=Number(note.dataset.note);s.value=reading.names[i];note.textContent=!reading.chosen[i]&&reading.names[i]==='CONT'?'ほかの交差の続きとして入りました。':'';});
    const unknown=chart.symbols.flat().filter(c=>c==='UNK').length,missing=chart.cells.flat().filter(c=>c===null).length;
-   $('scan-result').textContent=`${chart.columns}目 × ${chart.rows}段・${chart.yarns.length}色。`+(unknown?`「？」のマスが${unknown}か所あります。記号を選ぶか、作成後に記号ツールで直してください。`:'すべてのマスに記号が入りました。')+(missing?` 編み図の外の${missing}マスは「目がない場所」になります。`:'');
+   $('scan-result').textContent=`${chart.columns}目 × ${chart.rows}段・${chart.yarns.length}色。`+(unknown?`「？」のマスが${unknown}か所あります。上で記号を選ぶか、作成後に記号ツールで直してください。`:'すべてのマスに記号が入りました。')+(missing?` 編み図の外の${missing}マスは「目がない場所」になります。`:'');
    $('scan-done-error').textContent='';$('scan-start').disabled=false;drawPreview();
   }catch(error){chart=null;$('scan-done-error').textContent=error.message;$('scan-start').disabled=true;}
  }

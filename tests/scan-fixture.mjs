@@ -39,3 +39,47 @@ export function photograph(cols,rows,cell,quad,w,h,options){
   const v=s/4+((x*31+y*17)%11)-5-(x/w)*20,i=(y*w+x)*4;out[i]=v;out[i+1]=v*.97;out[i+2]=v*.92;out[i+3]=255;}
  return out;
 }
+
+// ---- a printed symbol chart (JIS style) for the recognition tests ----
+// Each row is a sequence of symbols separated by knit (blank) cells, shifted row by row. Drawn independently of the
+// app's references: other stroke weights and proportions, cables with a gap where a strand passes under.
+const SEQUENCE=['P',null,'RC1',null,'YO',null,'LC1',null,'K2TOG',null,'SSK',null,'RC2',null,'LC2',null,'SL',null,'BO',null,'TBL',null,'P','P',null];
+const WIDTH={RC1:2,LC1:2,RC2:4,LC2:4};
+/** Cell code printed at stitch i (from the left), row j (from the top): null (knit), a code, or a cable part CODE@k. */
+export function truthCode(i,j,cols){
+ let x=-(j*3)%SEQUENCE.length;const row=Array(cols).fill(null);
+ for(let n=0;x<cols;n++){const code=SEQUENCE[n%SEQUENCE.length],w=WIDTH[code]||1;
+  if(code&&x>=0&&x+w<=cols)for(let k=0;k<w;k++)row[x+k]=w>1?`${code}@${k}`:code;x+=w;}
+ return row[i];
+}
+const segD=(px,py,x0,y0,x1,y1)=>{const dx=x1-x0,dy=y1-y0,l=dx*dx+dy*dy,t=l?Math.max(0,Math.min(1,((px-x0)*dx+(py-y0)*dy)/l)):0;return Math.hypot(px-x0-t*dx,py-y0-t*dy);};
+/** Whether point (fx,fy) of a cell (0-1, y down) is ink for the printed symbol `code` (a cable part draws its share). */
+export function printedInk(code,fx,fy){
+ if(!code)return false;const half=.045;const [base,at]=code.split('@'),k=Number(at||0);
+ const seg=(x0,y0,x1,y1)=>segD(fx,fy,x0,y0,x1,y1)<half;
+ switch(base){
+  case 'P':return seg(.3,.5,.7,.5);
+  case 'YO':return Math.abs(Math.hypot(fx-.5,fy-.5)-.21)<half;
+  case 'BO':return Math.hypot(fx-.5,fy-.5)<.2;
+  case 'SL':return seg(.28,.22,.5,.78)||seg(.5,.78,.72,.22);
+  case 'TBL':{const a=Math.atan2(fy-.42,fx-.5),r=Math.hypot(fx-.5,fy-.42);return (Math.abs(r-.17)<half&&fy<.55)||seg(.36,.52,.68,.8)||seg(.64,.52,.32,.8);}
+  case 'K2TOG':return seg(.25,.8,.5,.2)||seg(.75,.8,.56,.42);
+  case 'SSK':return seg(.75,.8,.5,.2)||seg(.25,.8,.44,.42);
+ }
+ const w=WIDTH[base],x=fx+k,right=base.startsWith('R'),kk=base.endsWith('2')?2:1,m=w-kk,a=i=>i+.5;
+ const over=right?Array.from({length:kk},(_,i)=>[a(m+i),a(i)]):Array.from({length:kk},(_,i)=>[a(i),a(m+i)]);
+ const under=right?Array.from({length:m},(_,i)=>[a(i),a(kk+i)]):Array.from({length:m},(_,i)=>[a(kk+i),a(i)]);
+ const on=([x0,x1],gap)=>{const d=segD(x,fy,x0,.86,x1,.14);if(d>=half)return false;if(!gap)return true;const t=(.86-fy)/.72;return Math.abs(t-.5)>.15;};
+ return over.some(s=>on(s,false))||under.some(s=>on(s,true));
+}
+/** Photo of a printed symbol chart: grid lines, symbols from truthCode, row numbers; tilted and optionally bent. */
+export function photographSymbols(cols,rows,cell,quad,w,h,{bend=0}={}){
+ const W=cols*cell,H=rows*cell,toChart=projective(quad,[[0,0],[W,0],[W,H],[0,H]]),out=new Uint8ClampedArray(w*h*4);
+ const ink=(cx,cy)=>{if(bend&&cx>=0&&cx<=W)cy+=bulge(cx,W,cell,bend);
+  if(cx<-1||cx>W+1||cy<-1||cy>H+1)return 238;
+  const gx=Math.round(cx/cell),gy=Math.round(cy/cell);if(Math.abs(cx-gx*cell)<.8||Math.abs(cy-gy*cell)<.8)return 80;
+  const i=Math.floor(cx/cell),j=Math.floor(cy/cell);return printedInk(truthCode(i,j,cols),cx/cell-i,cy/cell-j)?55:238;};
+ for(let y=0;y<h;y++)for(let x=0;x<w;x++){let s=0;for(const [ox,oy] of [[.25,.25],[.75,.25],[.25,.75],[.75,.75]]){const [cx,cy]=toChart(x+ox,y+oy);s+=ink(cx,cy);}
+  const v=s/4+((x*31+y*17)%11)-5,i=(y*w+x)*4;out[i]=v;out[i+1]=v*.97;out[i+2]=v*.92;out[i+3]=255;}
+ return out;
+}
