@@ -1,4 +1,5 @@
 import {STITCHES,cableStrands,cellCodes,PURLED} from './stitches.mjs';
+import {predict,CLASSES} from './symbol-model.mjs';
 
 // Reading the knitting symbols of a straightened book chart, cell by cell, without a model: every cell's ink is
 // compared with drawn references of the Japanese chart symbols (JIS style), and cables are found as runs of cells
@@ -99,6 +100,11 @@ export function classifyCell(ink,{threshold=.13}={}){
  const N=Math.round(Math.sqrt(ink.length));let amount=0,peak=0;for(const v of ink){amount+=v;if(v>peak)peak=v;}amount/=ink.length;
  // Paper texture or a shaded ground: faint all over, no stroke. Grid lines crossing into the cell: not a symbol.
  if(amount<.02||peak<.55||gridLinesOnly(ink,N))return {code:null,distance:0};
+ // The trained model when it is bundled: the most likely class, if it is sure enough. 「OTHER」 (a note, a letter, a stray
+ // stroke) and unsure cells are left as unknown. distance: 1 − probability, comparable to the references' distances.
+ const probs=predict(ink);
+ if(probs){let k=0;for(let i=1;i<probs.length;i++)if(probs[i]>probs[k])k=i;const name=CLASSES[k],p=probs[k];
+  if(p<.55||name==='OTHER')return {code:'UNK',distance:1-p,probs};return {code:name==='KNIT'?null:name,distance:1-p,probs};}
  const shape=shapeOf(ink);let best=null;
  for(const ref of singleReferences(N)){const d=distance(shape,ref.shape);if(!best||d<best.distance)best={code:ref.code,distance:d};}
  if(best.distance>threshold)return {code:'UNK',distance:best.distance};
@@ -173,6 +179,10 @@ export function recognize(cells,R,C,outside=new Uint8Array(R*C),{groups=null,spa
   // Many cells of one shape that no single cell matched well (a book's own drawing of a symbol): their average shape
   // is cleaner than any one of them; compare it with the references a little more leniently.
   const own=g.members.filter(k=>!cable[k]&&codes[k]==='UNK');if(own.length<3)continue;
+  if(predict(cells[own[0]].ink)){// with the model: the group's average ink, read once
+   const avg=new Float32Array(N*N);for(const k of own)for(let i=0;i<avg.length;i++)avg[i]+=cells[k].ink[i]/own.length;
+   const probs=predict(avg);let k=0;for(let i=1;i<probs.length;i++)if(probs[i]>probs[k])k=i;
+   if(probs[k]>=.5&&CLASSES[k]!=='OTHER'){const code=CLASSES[k]==='KNIT'?null:CLASSES[k];for(const c of own)codes[c]=code;}continue;}
   const mean=new Float32Array(N*N);for(const k of own){const sh=shapeOf(cells[k].ink);for(let i=0;i<mean.length;i++)mean[i]+=sh[i]/own.length;}
   const near=nearestReference(mean,N);if(near.distance<=.17){const lean=topLean(mean,N),code=DECREASE2.has(near.code)?(lean<0?'K2TOG':'SSK'):DECREASE3.has(near.code)?(lean<-.04?'K3TOG':lean>.04?'SK2P':'S2KP'):near.code;for(const k of own)codes[k]=code;}}
  return codes;

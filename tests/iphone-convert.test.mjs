@@ -95,6 +95,8 @@ test('cables named on their left cell cover the cells to the right; pages join s
 test('cells outside a shaped outline (no grid lines around them) become no-stitch cells',()=>{
  const R=4,C=4,cells=[];for(let r=0;r<R;r++)for(let c=0;c<C;c++){const inside=!(r===R-1&&c===0);cells.push({r,c,amount:0,sides:inside?[30,30,30,30]:[0,30,0,0]});}
  const out=outsideCells(cells,R,C);assert.deepEqual([...out].map((v,k)=>v?k:-1).filter(k=>k>=0),[12]);
+ // A note printed in that empty corner (ink, but no grid lines around) is outside too; ink inside the grid is not.
+ cells[12].amount=.3;cells[5].amount=.3;assert.deepEqual([...outsideCells(cells,R,C)].map((v,k)=>v?k:-1).filter(k=>k>=0),[12]);
 });
 
 test('knitting symbols: cell codes, cables across cells, mirror',()=>{
@@ -123,4 +125,15 @@ test('a straight line right across a cell is a grid line, not a symbol',()=>{
 test('a doubled border line is a grid line too',()=>{
  const make=f=>Float32Array.from({length:SAMPLES*SAMPLES},(_,k)=>f(k%SAMPLES,Math.floor(k/SAMPLES))?1:0);
  assert.equal(groupLineOnly([make(i=>i===2||i===9)]),true);assert.equal(groupLineOnly([make((i,j)=>i===2||(j===8&&i>3&&i<11))]),false);
+});
+
+test('notes found by text recognition are left out of the chart; chart strokes read as text are not notes',async()=>{
+ const {noteBoxes,cellsUnderNotes}=await import('../docs/iphone/app/chart-convert.mjs');
+ const notes=noteBoxes([{text:'糸をつける',x:0,y:0,w:40,h:10},{text:'模様編みA(33目)',x:0,y:0,w:1,h:1},{text:'一一一',x:0,y:0,w:1,h:1},{text:'lll',x:0,y:0,w:1,h:1},{text:'15',x:0,y:0,w:1,h:1},{text:'→',x:0,y:0,w:1,h:1,confidence:.2}]);
+ assert.deepEqual(notes.map(n=>n.text),['糸をつける','模様編みA(33目)']);
+ // A 3 x 3 grid on a 30 x 30 page: the note covers the top-left cell (no grid sides) and the top-middle cell (grid sides).
+ const C=3,R=3,mesh=new Float64Array((R+1)*(C+1)*2);for(let i=0;i<=R;i++)for(let j=0;j<=C;j++){mesh[(i*(C+1)+j)*2]=j/3;mesh[(i*(C+1)+j)*2+1]=(R-i)/3;}
+ const cells=[];for(let r=0;r<R;r++)for(let c=0;c<C;c++)cells.push({r,c,sides:r===R-1&&c===0?[0,0,0,0]:[30,30,30,30]});
+ const {outside,notes:under}=cellsUnderNotes(cells,mesh,C,30,30,[{x:0,y:0,w:18,h:9}],new Uint8Array(R*C));
+ assert.deepEqual([...under].map((v,k)=>v?k:-1).filter(k=>k>=0),[6,7],'cells under the note');assert.deepEqual([...outside].map((v,k)=>v?k:-1).filter(k=>k>=0),[6],'only the one without grid lines is outside');
 });

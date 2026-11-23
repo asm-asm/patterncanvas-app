@@ -16,6 +16,7 @@ export const writeLock=value=>localStorage.setItem('native-lock',String(value));
 export const rowCompleted=()=>window.haptics=(window.haptics||0)+1;
 export const exportProject=async(data,name)=>{window.shared={data,name};};
 export const prepareOffline=()=>document.querySelector('#offline-state').textContent='初回からオフラインで使えます';
+export const readText=async()=>{window.textReads=(window.textReads||0)+1;return {items:[{text:'メモ（テスト）',confidence:.9,x:.01,y:.01,w:.05,h:.02}],numbers:[]};};
 `}));
 // A book page with a 24 x 30 chart (purl dashes, crosses, a shaded block), photographed at an angle on a sagging page.
 const W=560,H=640,QUAD=[[62,48],[505,70],[520,598],[40,575]],rgba=photograph(24,30,20,QUAD,W,H,{shading:true,bend:.4});
@@ -119,6 +120,7 @@ try{
  // Undo returns to the converted chart after a new blank one.
  await page.locator('#new-project').click();await page.waitForTimeout(200);assert.equal((await read()).rows,20);
  await page.locator('[data-view=both]').click();await page.locator('#undo').click();await page.waitForTimeout(200);assert.equal((await read()).name,'ゴム編み');
+ assert.ok(await page.evaluate(()=>window.textReads)>=1,'the device text recognition was asked');
  assert.deepEqual(errors,[]);assert.deepEqual(remote,[]);
  console.log('native scan UI: ok');
 }finally{await browser.close();}

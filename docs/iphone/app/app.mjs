@@ -117,7 +117,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden)finishRecol
 $('yarn-recolor').oninput=$('yarn-recolor').onchange=e=>{if(!liveRecolor(yarn,e.target.value))render();};
 setupPrint({project:()=>p,numberFromRight:()=>p.flatKnitting?M.knittingSide(p).numberFromRight:chartView.numberFromRight,exportFile:(bytes,name,type)=>Platform.exportFile(bytes,name,type),message});
 setupPhotoImport({replace,editable,message});
-setupScanImport({replace,editable,message});
+setupScanImport({replace,editable,message,readText:Platform.readText});
 setupYoke({replace,editable,message});
 setupPadding({getPattern:()=>p,editable,change,settings,message,clearSelection:()=>{selection=null;clipboard=null;render();}});
 // Safari's toolbar/keyboard changes viewport height while scrolling. It must

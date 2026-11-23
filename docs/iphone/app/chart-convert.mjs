@@ -87,6 +87,28 @@ export function buildMesh(fit){
  return mesh;
 }
 /** Image point (pixels) at (u,v) inside cell (row r bottom-up, stitch c), u left→right, v bottom→top. */
+/**
+ * Notes printed on the page (text found by the device's text recognition): which of them are notes, not symbols.
+ * Text with Japanese letters, arrows or brackets is a note; a run of dashes, strokes or loops is the chart itself,
+ * which text recognition may read as 「一一一」 or 「lll」. items: [{text, x, y, w, h}] in page pixels.
+ */
+export function noteBoxes(items){
+ return items.filter(t=>/[ぁ-ゖァ-ヺ一-龯々〆（）()←→↑↓※]/.test(t.text)&&!/^[一ー－\-—―ｰ|｜lI1ℓ\s]+$/.test(t.text)&&(t.confidence??1)>=.4);
+}
+/**
+ * Cells under a note: outside the chart where they have no grid lines (the note is printed beside a shaped chart),
+ * otherwise a knit stitch (the note is printed over the grid). Returns {outside, notes} for the cells.
+ */
+export function cellsUnderNotes(cells,mesh,C,width,height,boxes,outside){
+ const out=Uint8Array.from(outside),notes=new Uint8Array(cells.length);if(!boxes.length)return {outside:out,notes};
+ cells.forEach((cell,k)=>{const [x,y]=cellPoint(mesh,C,cell.r,cell.c,.5,.5,width,height);
+  if(boxes.some(b=>x>=b.x-b.h*.15&&x<=b.x+b.w+b.h*.15&&y>=b.y-b.h*.15&&y<=b.y+b.h*1.15))notes[k]=1;});
+ // A note covering cells with no grid sides: outside; reaching into the grid: knit.
+ const lines=cells.flatMap(c=>c.sides).sort((a,b)=>a-b),need=(lines[Math.floor(lines.length*.75)]||0)*.3;
+ cells.forEach((cell,k)=>{if(notes[k]&&cell.sides.filter(s=>s>need).length<=2)out[k]=1;});
+ return {outside:out,notes};
+}
+
 function cellPoint(mesh,C,r,c,u,v,width,height){
  const at=(i,j,k)=>mesh[(i*(C+1)+j)*2+k];
  const x=(1-v)*((1-u)*at(r,c,0)+u*at(r,c+1,0))+v*((1-u)*at(r+1,c,0)+u*at(r+1,c+1,0));
@@ -151,12 +173,14 @@ function sides(rgba,width,height,mesh,C,r,c){
 }
 
 /**
- * Cells outside the printed outline (a raglan or a neckline leaves the corners of the frame empty): blank cells whose
- * sides carry no grid line, reached from the frame edge. They become "no stitch".
+ * Cells outside the printed outline (a raglan or a neckline leaves the corners of the frame empty; notes are printed
+ * there): cells whose sides carry no grid line, reached from the frame edge. They become "no stitch".
  */
 export function outsideCells(cells,R,C){
  const strong=cells.flatMap(c=>c.sides).sort((a,b)=>a-b),line=strong[Math.floor(strong.length*.75)]||0,need=line*.3;
- const open=cells.map(c=>c.amount<.02&&c.sides.filter(s=>s>need).length<=1),out=new Uint8Array(R*C),stack=[];
+ // Open: no grid line on more than one side. Ink does not matter: notes printed beside a shaped chart (「糸をつける」,
+ // captions, arrows) sit in cells without grid lines and are not stitches.
+ const open=cells.map(c=>c.sides.filter(s=>s>need).length<=1),out=new Uint8Array(R*C),stack=[];
  for(let r=0;r<R;r++)for(const c of [0,C-1])stack.push(r*C+c);for(let c=0;c<C;c++)for(const r of [0,R-1])stack.push(r*C+c);
  while(stack.length){const k=stack.pop();if(out[k]||!open[k])continue;out[k]=1;const r=Math.floor(k/C),c=k%C;for(const [rr,cc] of [[r+1,c],[r-1,c],[r,c+1],[r,c-1]])if(rr>=0&&cc>=0&&rr<R&&cc<C)stack.push(rr*C+cc);}
  return out;
