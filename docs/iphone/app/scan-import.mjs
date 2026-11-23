@@ -1,6 +1,6 @@
 import {rectify,grayscale,detectGrid,insetQuad,checkQuad,flatRegion,linesAt,SCAN_MAX_ROWS} from './scan-model.mjs';
-import {readRowNumbers,rowOffset} from './rownumbers.mjs';
-import {analyzeGrid,findGaps,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
+import {readRowNumbers,readStitchNumbers,rowOffset} from './rownumbers.mjs';
+import {analyzeGrid,findGaps,checkCounts,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
 import {STITCHES,stitchPart,stitchDef} from './stitches.mjs';
 import {recognize} from './recognize.mjs';
 import {INCREASES} from './model.mjs';
@@ -95,17 +95,24 @@ export function setupScanImport({replace,editable,message}){
    // Bands with no stitch lines across the grid are rows the book left out (「省略」): the frame splits into blocks there.
    const gaps=C0?findGaps(gray,r.width,r.height,r.grid,C0):[],top=r.grid.top*r.height,bottom=r.grid.bottom*r.height,edges=[top,...gaps.flat(),bottom],blocks=[];
    for(let i=edges.length-2;i>=0;i-=2){const grid={...r.grid,top:edges[i]/r.height,bottom:edges[i+1]/r.height};blocks.push({grid,analysis:gaps.length?analyzeGrid(gray,r.width,r.height,grid):analysis});}
-   // Row numbers beside the chart tell how many rows each omission leaves out; read them from the photo's own pixels.
-   let numbers=[];
-   if(gaps.length){const density=Math.max(1,Math.min(3,Math.hypot(quad[1][0]-quad[0][0],quad[1][1]-quad[0][1])/((r.grid.right-r.grid.left)*r.width))),pitch=(r.grid.right-r.grid.left)*r.width/Math.max(1,C0);
-    numbers=readRowNumbers((x0,x1,y0,y1)=>({...flatRegion(data,source.width,source.height,quad,r.width,r.height,{x0,x1,y0,y1},density),k:density}),r.width,r.height,r.grid,pitch);}
-   current={rgba:r.data,width:r.width,height:r.height,analysis,blocks,numbers,omits:gaps.map(()=>({value:null,edited:false})),source,quad:quad.map(q=>[...q])};
+   // The row and stitch numbers printed beside and under the chart, read from the photo's own pixels: they check the
+   // counts and tell how many rows each omission leaves out.
+   const density=Math.max(1,Math.min(3,Math.hypot(quad[1][0]-quad[0][0],quad[1][1]-quad[0][1])/((r.grid.right-r.grid.left)*r.width)));
+   const region=(x0,x1,y0,y1)=>({...flatRegion(data,source.width,source.height,quad,r.width,r.height,{x0,x1,y0,y1},density),k:density});
+   const rowPitch=(r.grid.bottom-r.grid.top)*r.height/Math.max(1,analysis.rows.rows||40),colPitch=(r.grid.right-r.grid.left)*r.width/Math.max(1,C0||40);
+   const numbers={rows:readRowNumbers(region,r.width,r.height,r.grid,rowPitch),stitches:readStitchNumbers(region,r.width,r.height,r.grid,colPitch)};
+   const whole=checkCounts(analysis,blocks.length===1?analysis.rows.rows:null,C0,numbers);
+   blocks.forEach(b=>{b.count=blocks.length===1?whole.rows:checkCounts(b.analysis,b.analysis.rows.rows,null,{rows:numbers.rows}).rows;});
+   const C1=whole.cols;
+   current={rgba:r.data,width:r.width,height:r.height,analysis,blocks,numbers:numbers.rows,omits:gaps.map(()=>({value:null,edited:false})),source,quad:quad.map(q=>[...q])};
    const fixedRows=join==='side'&&pages.length===1&&blocks.length===1&&(pages[0].parts?.length??1)===1?pages[0].R:null;
-   $('scan-rows').value=fixedRows??blocks[0].analysis.rows.rows??'';$('scan-cols').value=C0??'';
+   $('scan-rows').value=fixedRows??blocks[0].count??'';$('scan-cols').value=C1??'';
    $('scan-rows').disabled=$('scan-rows-less').disabled=$('scan-rows-more').disabled=fixedRows!==null;
    $('scan-rows-step').hidden=blocks.length>1;showBlocks();
-   const read=[blocks.length===1&&analysis.rows.rows&&`${analysis.rows.rows}段`,C0&&`${C0}目`].filter(Boolean).join('・');
-   $('scan-detected').textContent=(fixedRows!==null?`段数はもう片方のページと同じ${fixedRows}段です。`:'')+(blocks.length>1?`途中に段の省略が${gaps.length}か所あります。省略された段は、すぐ下の段の模様をくり返して埋めます。`:'')+(read?`写真のマス目から${read}と読み取りました。本の段数・目数と合っているか確かめてください。`:'')+(!C0||blocks.some(b=>!b.analysis.rows.rows)?'読み取れなかった数を入力してください。':'');
+   const read=[blocks.length===1&&whole.rows&&`${whole.rows}段`,C1&&`${C1}目`].filter(Boolean).join('・');
+   const checked=(blocks.length>1||whole.rowsChecked)&&whole.colsChecked,unsure=!analysis.rows.sure||!analysis.cols.sure;
+   $('scan-detected').textContent=(fixedRows!==null?`段数はもう片方のページと同じ${fixedRows}段です。`:'')+(blocks.length>1?`途中に段の省略が${gaps.length}か所あります。省略された段は、すぐ下の段の模様をくり返して埋めます。`:'')
+    +(read?(checked?`マス目と段・目の番号から${read}と読み取りました。`:unsure?`マス目から${read}と見積もりました。線がはっきりしない所があるので、本の段数・目数と見比べてください。`:`写真のマス目から${read}と読み取りました。本の段数・目数と合っているか確かめてください。`):'')+(!C1||blocks.some(b=>!b.count)?'読み取れなかった数を入力してください。':'');
    gridView.scale=0;step('grid');refit();
   }catch(error){$('scan-corners-error').textContent=error.message;}finally{$('scan-flatten').disabled=false;$('scan-flatten').textContent='次へ：マス目を確かめる';}},30);
  };
@@ -119,7 +126,7 @@ export function setupScanImport({replace,editable,message}){
    input.oninput=()=>oninput(input);less.onclick=()=>{input.value=Math.max(0,(Number(input.value)||0)-1);oninput(input);};more.onclick=()=>{input.value=Math.min(MAX_COUNT,(Number(input.value)||0)+1);oninput(input);};
    row.append(less,wrap,more);return row;};
   for(let i=current.blocks.length-1;i>=0;i--){const b=current.blocks[i];
-   box.append(stepper(`${i===current.blocks.length-1?'いちばん上':i===0?'いちばん下':`下から${i+1}つ目`}のブロックの段数`,`scan-block-rows-${i}`,b.analysis.rows.rows,()=>refit()));
+   box.append(stepper(`${i===current.blocks.length-1?'いちばん上':i===0?'いちばん下':`下から${i+1}つ目`}のブロックの段数`,`scan-block-rows-${i}`,b.count,()=>refit()));
    if(i>0){const o=current.omits[i-1],row=stepper('省略された段数',`scan-omit-${i-1}`,o.value,input=>{o.edited=true;o.value=Number(input.value)||0;refit();});row.classList.add('scan-omit');box.append(row);
     const note=document.createElement('p');note.className='hint';note.id=`scan-omit-note-${i-1}`;box.append(note);}}
  }
