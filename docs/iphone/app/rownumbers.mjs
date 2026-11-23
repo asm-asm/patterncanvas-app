@@ -66,38 +66,33 @@ function enlarged(gray,width,height,x0,x1,y0,y1,k){
  * from the photo itself in the app (flatRegion), or the flattened image enlarged (pageRegion).
  */
 export function readRowNumbers(region,width,height,grid,pitch){
- const left=grid.left*width,right=grid.right*width,top=Math.max(0,grid.top*height-pitch),bottom=Math.min(height,grid.bottom*height+pitch);
- return [[0,left-pitch*.2],[right+pitch*.2,width]].flatMap(([x0,x1])=>readMargin(region,{x0,x1,y0:top,y1:bottom},pitch));
-}
-/** Stitch numbers printed under (or over) the chart: [{value, x}] (x: centre, in the flattened page's pixels). */
-export function readStitchNumbers(region,width,height,grid,pitch){
- const left=Math.max(0,grid.left*width-pitch),right=Math.min(width,grid.right*width+pitch),top=grid.top*height,bottom=grid.bottom*height;
- return [[0,top-pitch*.15],[bottom+pitch*.15,height]].flatMap(([y0,y1])=>readMargin(region,{x0:left,x1:right,y0,y1},pitch));
-}
-/** The numbers in one rectangle of the page: digits read and joined side by side. [{value, x, y}] in page pixels. */
-function readMargin(region,{x0,x1,y0,y1},pitch){
- if(x1-x0<pitch*.5||y1-y0<pitch*.5)return [];
- let part=region(x0,x1,y0,y1);
- // Digits are read about 34 px tall or more: still smaller print is enlarged.
- const more=Math.max(1,Math.min(4,Math.ceil(34/(pitch*part.k))));
- if(more>1){const e=enlarged(part.gray,part.width,part.height,0,part.width,0,part.height,more);part={gray:e.gray,width:e.width,height:e.height,k:part.k*more};}
- const k=part.k,size=pitch*k,raw=shapes(part.gray,part.width,part.height,0,part.width,0,part.height,size*1.2);
- // Two digits printed touching («20») come as one shape: cut it at its thinnest column.
- const all=raw.flatMap(s=>splitTouching(s));
- // Circled numbers: a ring about a row tall with other shapes inside it; read those instead of the ring.
- const inside=s=>all.filter(t=>t!==s&&t.box.x0>s.box.x0&&t.box.x1<s.box.x1&&t.box.y0>s.box.y0&&t.box.y1<s.box.y1);
- const digits=[];
- for(const s of all){const h=s.box.y1-s.box.y0+1,w=s.box.x1-s.box.x0+1;
-  if(h>size*.6&&h<size*2.2&&w>h*.7&&w<h*1.4&&inside(s).length){continue;}
-  const ring=all.find(r=>r!==s&&s.box.x0>r.box.x0&&s.box.x1<r.box.x1&&s.box.y0>r.box.y0&&s.box.y1<r.box.y1);
-  const limit=ring?(ring.box.y1-ring.box.y0)*.8:size*1.6;if(h<Math.max(6,size*(ring?.25:.35))||h>limit)continue;
-  if(w<h*.18)continue; // a stroke of a grid line, not a 「1」
-  const d=readDigit(s.pixels,s.box);if(d!==null)digits.push({d,box:s.box,h});}
- // Digits side by side on one line make one number.
- digits.sort((a,b)=>a.box.x0-b.box.x0);const used=new Set(),found=[];
- for(const a of digits){if(used.has(a))continue;const group=[a];used.add(a);let last=a;
-  for(const b of digits){if(used.has(b))continue;const cy=(last.box.y0+last.box.y1)/2,by=(b.box.y0+b.box.y1)/2;if(Math.abs(cy-by)<last.h*.35&&b.box.x0>last.box.x1-1&&b.box.x0-last.box.x1<last.h*.6&&Math.abs(b.h-last.h)<last.h*.3){group.push(b);used.add(b);last=b;}}
-  if(group.length<=3)found.push({value:Number(group.map(g=>g.d).join('')),x:x0+(group[0].box.x0+group.at(-1).box.x1)/2/k,y:y0+(group[0].box.y0+group[0].box.y1)/2/k});}
+ const left=grid.left*width,right=grid.right*width,top=Math.max(0,grid.top*height-pitch),bottom=Math.min(height,grid.bottom*height+pitch),found=[];
+ for(const [mx0,mx1] of [[0,left-pitch*.2],[right+pitch*.2,width]]){
+  if(mx1-mx0<pitch*.5)continue;
+  let part=region(mx0,mx1,top,bottom);
+  // Digits are read about 34 px tall or more: still smaller print is enlarged.
+  const more=Math.max(1,Math.min(4,Math.ceil(34/(pitch*part.k))));
+  if(more>1){const e=enlarged(part.gray,part.width,part.height,0,part.width,0,part.height,more);part={gray:e.gray,width:e.width,height:e.height,k:part.k*more};}
+  const k=part.k,raw=shapes(part.gray,part.width,part.height,0,part.width,0,part.height,pitch*k*1.2);
+  // Two digits printed touching («20») come as one shape: cut it at its thinnest column.
+  const all=raw.flatMap(s=>splitTouching(s));
+  pitch*=k;
+  // Circled numbers: a ring about a row tall with other shapes inside it; read those instead of the ring.
+  const inside=s=>all.filter(t=>t!==s&&t.box.x0>s.box.x0&&t.box.x1<s.box.x1&&t.box.y0>s.box.y0&&t.box.y1<s.box.y1);
+  const digits=[];
+  for(const s of all){const h=s.box.y1-s.box.y0+1,w=s.box.x1-s.box.x0+1;
+   if(h>pitch*.6&&h<pitch*2.2&&w>h*.7&&w<h*1.4&&inside(s).length){continue;}
+   const ring=all.find(r=>r!==s&&s.box.x0>r.box.x0&&s.box.x1<r.box.x1&&s.box.y0>r.box.y0&&s.box.y1<r.box.y1);
+   const limit=ring?(ring.box.y1-ring.box.y0)*.8:pitch*1.6;if(h<Math.max(6,pitch*(ring?.25:.35))||h>limit)continue;
+   if(w<h*.18)continue; // a stroke of a grid line, not a 「1」
+   const d=readDigit(s.pixels,s.box);if(d!==null)digits.push({d,box:s.box,h});}
+  // Digits side by side on one line make one number.
+  digits.sort((a,b)=>a.box.x0-b.box.x0);const used=new Set();
+  for(const a of digits){if(used.has(a))continue;const group=[a];used.add(a);let last=a;
+   for(const b of digits){if(used.has(b))continue;const cy=(last.box.y0+last.box.y1)/2,by=(b.box.y0+b.box.y1)/2;if(Math.abs(cy-by)<last.h*.35&&b.box.x0>last.box.x1-1&&b.box.x0-last.box.x1<last.h*.6&&Math.abs(b.h-last.h)<last.h*.3){group.push(b);used.add(b);last=b;}}
+   if(group.length<=3)found.push({value:Number(group.map(g=>g.d).join('')),y:top+(group[0].box.y0+group[0].box.y1)/2/k});}
+  pitch/=k;
+ }
  return found;
 }
 
@@ -114,10 +109,4 @@ export function rowOffset(numbers,rowAt){
  const votes=new Map();for(const {value,y} of numbers){if(value<1)continue;const r=rowAt(y);if(!r||(value===1&&r!==1))continue;const o=value-r,w=value%5===0?2:1;votes.set(o,(votes.get(o)||0)+w);}
  const ranked=[...votes].sort((a,b)=>b[1]-a[1]);if(!ranked.length)return null;
  const [offset,score]=ranked[0];return score>=3&&score-(ranked[1]?.[1]??0)>=2?offset:null;
-}
-
-/** How well printed numbers agree with a numbering: the weight of the biggest group sharing one offset (see rowOffset). */
-export function agreement(numbers,indexAt,key='y'){
- const votes=new Map();for(const n of numbers){if(n.value<1)continue;const i=indexAt(n[key]);if(!i||(n.value===1&&i!==1))continue;const o=n.value-i;votes.set(o,(votes.get(o)||0)+(n.value%5===0?2:1));}
- return Math.max(0,...votes.values());
 }

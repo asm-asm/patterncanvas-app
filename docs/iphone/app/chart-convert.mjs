@@ -1,6 +1,5 @@
 import {analyzePage,fitPage,linesAt} from './scan-model.mjs';
 import {blank} from './model.mjs';
-import {agreement} from './rownumbers.mjs';
 import {stitchDef,cellCodes,stitchPart} from './stitches.mjs';
 import {INSET,shapeOf,distance} from './recognize.mjs';
 
@@ -36,25 +35,6 @@ export function findGaps(gray,width,height,grid,cols,analysis=null){
  for(let y=top;y<=bottom;y++){const quiet=y<bottom&&(lines[Math.max(top,y-1)]+lines[y]+lines[Math.min(bottom-1,y+1)])/3<typical*.55; // a caption crosses some lines, the grid all
   if(quiet&&start<0)start=y;if(!quiet&&start>=0){if(y-start>=pitch*.5&&start-top>pitch*.8&&bottom-y>pitch*.8)gaps.push([start,y]);start=-1;}}
  return gaps;
-}
-
-/**
- * Row and stitch counts checked against the numbers printed beside and under the chart. The lines give a count that
- * can be one off at an edge; of the counts near it, the one under which the most printed numbers agree wins (row 1 at
- * the bottom, stitch 1 at the right, as Japanese charts number them). rows/cols: from the lines; numbers: {rows:[{value,y}],
- * stitches:[{value,x}]}. Returns {rows, cols, rowsChecked, colsChecked}.
- */
-export function checkCounts(analysis,rows,cols,numbers){
- // Another count is taken only when the numbers clearly back it (a lead of two votes); otherwise the lines stand.
- const best=(start,fitOf,indexAt,list,key)=>{if(!start||list.length<2)return {n:start,checked:false};
-  const own=agreement(list,indexAt(fitOf(start),start),key);let pick=start,top=own;
-  for(const n of [start-1,start+1,start-2,start+2]){if(n<1)continue;const score=agreement(list,indexAt(fitOf(n),n),key);if(score>=4&&score>=own+2&&score>top){top=score;pick=n;}}
-  return {n:pick,checked:top>=4};};
- const g=analysis.grid,W=analysis.width,H=analysis.height;
- const r=best(rows,n=>fitPage(analysis.rows,n),(fit,n)=>{const edges=[linesAt(fit,g.left),linesAt(fit,g.right)].map(l=>l.map(v=>v*H));return y=>{for(const e of edges)for(let i=1;i<=n;i++)if(y<=e[i-1]&&y>=e[i])return i;return null;};},numbers.rows||[],'y');
- // Stitch boundaries from the transposed fit run from the right edge leftward: index 1 is the rightmost stitch.
- const c=best(cols,n=>fitPage(analysis.cols,n),(fit,n)=>{const edges=[linesAt(fit,g.top),linesAt(fit,g.bottom)].map(l=>l.map(v=>v*W));return x=>{for(const e of edges)for(let i=1;i<=n;i++)if(x<=e[i-1]&&x>=e[i])return i;return null;};},numbers.stitches||[],'x');
- return {rows:r.n,cols:c.n,rowsChecked:r.checked,colsChecked:c.checked};
 }
 
 /** Row lines (per vertical strip) and stitch lines (per horizontal band) of a flattened page. */

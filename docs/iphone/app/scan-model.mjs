@@ -101,7 +101,7 @@ export function estimateRows(profile,top,bottom){
  let best=0,scores=[];for(let p=7;p<=Math.min(H/2,400);p+=.5){const v=score(p);scores.push([p,v]);if(v>best)best=v;}
  // The spacing must stand out from the rest: random marks match some distance by chance, a grid one distance clearly.
  const typical=[...scores.map(s=>s[1])].sort((a,b)=>a-b)[Math.floor(scores.length/2)];
- if(best<3||best<peaks.length*.3||best<typical*2){const p=scores.find(([,v])=>v===best)?.[0];return {...none,guess:p&&best>=3?Math.round(H/p):null};}
+ if(best<3||best<peaks.length*.3||best<typical*2)return none;
  const pitch=scores.find(([,v])=>v>=best*.85)[0];
  // The bottom line: the line nearest the bottom edge, up to 3/4 of a row above it (a sagging page lifts the middle).
  let y=bottom,near=Infinity;for(const q of peaks){const d=bottom-q;if(d>=-pitch/2&&d<=pitch*.75&&Math.abs(d)<near){near=Math.abs(d);y=q;}}
@@ -111,8 +111,7 @@ export function estimateRows(profile,top,bottom){
   if(next!==null){found++;local=Math.max(pitch*.85,Math.min(pitch*1.15,local*.75+(ys.at(-1)-next)*.25));ys.push(next);}else ys.push(expected);
  }
  const rows=ys.length-1,confidence=rows?found/rows:0;
- // Unsure: no count, but the walk's count is kept as a guess for when no strip is sure.
- return rows<1||confidence<.6?{rows:null,confidence,ys:null,guess:rows>=1?rows:null}:{rows,confidence,ys:smooth(ys,pitch),guess:rows};
+ return rows<1||confidence<.6?{rows:null,confidence,ys:null}:{rows,confidence,ys:smooth(ys,pitch)};
 }
 
 /** A boundary far from the middle of its neighbours caught a symbol stroke, not the row line: put it back between them. */
@@ -141,18 +140,12 @@ export function fitLines(profile,top,bottom,rows,imageHeight){
 /** Vertical strips across the grid, about 80 px wide (4-24), each with its own line profile. */
 export function analyzePage(gray,width,height,grid){
  const left=grid.left*width,right=grid.right*width,n=Math.max(4,Math.min(24,Math.round((right-left)/80))),top=grid.top*height,bottom=grid.bottom*height,strips=[];
- for(let s=0;s<n;s++){const x0=left+(right-left)*s/n,x1=left+(right-left)*(s+1)/n;let profile=lineProfile(gray,width,height,x0+2,x1-2,.3),estimate=estimateRows(profile,top,bottom);
-  // Blurred or faint print loses its lines in the low share: read the strip again from the mean.
-  if(!estimate.rows){const mean=lineProfile(gray,width,height,x0+2,x1-2),again=estimateRows(mean,top,bottom);if(again.rows||(!estimate.guess&&again.guess))estimate={...again,weight:.5};} // a weaker reading: half a vote, for the count only (the mean also catches symbol strokes, so lines are placed from the low share)
-  strips.push({center:(x0+x1)/2/width,profile,estimate});}
+ for(let s=0;s<n;s++){const x0=left+(right-left)*s/n,x1=left+(right-left)*(s+1)/n,profile=lineProfile(gray,width,height,x0+2,x1-2,.3);strips.push({center:(x0+x1)/2/width,profile,estimate:estimateRows(profile,top,bottom)});}
  // The row count most strips agree on, weighted by how clearly each strip shows it.
  // Counts one apart agree half (the top edge may fall either side of a line in a strip).
- const votes=new Map();for(const st of strips){const r=st.estimate.rows;if(!r)continue;for(const [k,w] of [[r,1],[r-1,.5],[r+1,.5]])votes.set(k,(votes.get(k)||0)+st.estimate.confidence*w*(st.estimate.weight??1));}
+ const votes=new Map();for(const st of strips){const r=st.estimate.rows;if(!r)continue;for(const [k,w] of [[r,1],[r-1,.5],[r+1,.5]])votes.set(k,(votes.get(k)||0)+st.estimate.confidence*w);}
  let rows=null,score=0;for(const [r,v] of votes)if(v>score||(v===score&&r>rows)){rows=r;score=v;}
- if(score>=Math.max(1.2,n*.15))return {width,height,top,bottom,left,right,strips,rows,sure:true,confidence:score/n};
- // No strip is sure: the middle of their guesses (shown for checking) rather than nothing.
- const guesses=strips.map(st=>st.estimate.rows??st.estimate.guess).filter(Boolean).sort((a,b)=>a-b);
- return {width,height,top,bottom,left,right,strips,rows:guesses.length?guesses[Math.floor(guesses.length/2)]:null,sure:false,confidence:score/n};
+ return {width,height,top,bottom,left,right,strips,rows:score>=Math.max(1.2,n*.15)?rows:null,confidence:score/n};
 }
 
 /**
@@ -162,11 +155,11 @@ export function analyzePage(gray,width,height,grid){
 export function fitPage(analysis,rows){
  if(!Number.isInteger(rows)||rows<1||rows>SCAN_MAX_ROWS)throw Error(`段数は1〜${SCAN_MAX_ROWS}の整数で入力してください。`);
  const {strips,top,bottom,height}=analysis,pitch=(bottom-top)/rows,even=Array.from({length:rows+1},(_,i)=>bottom-pitch*i),out=[];
- const level=strips.map(st=>lineLevel(st.profile,top,bottom)),clarity=strips.map(st=>st.estimate.rows===rows&&!st.estimate.weight?st.estimate.confidence:0); // a count-only reading has no lines to start from
+ const level=strips.map(st=>lineLevel(st.profile,top,bottom)),clarity=strips.map(st=>st.estimate.rows===rows?st.estimate.confidence:0);
  let start=clarity.indexOf(Math.max(...clarity));if(!(clarity[start]>0))start=Math.floor(strips.length/2);
  const fit=(s,guess)=>pitch>=6&&Number.isFinite(level[s])?snapLines(strips[s].profile,guess,pitch,level[s]):[...guess];
  // A strip that read the same count keeps its own lines when they agree with its neighbour's; otherwise it follows them.
- const own=(s,near)=>{const ys=strips[s].estimate.rows===rows&&!strips[s].estimate.weight?strips[s].estimate.ys:null;return ys&&(!near||ys.every((y,i)=>Math.abs(y-near[i])<pitch*.35))?[...ys]:null;};
+ const own=(s,near)=>{const ys=strips[s].estimate.rows===rows?strips[s].estimate.ys:null;return ys&&(!near||ys.every((y,i)=>Math.abs(y-near[i])<pitch*.35))?[...ys]:null;};
  out[start]=own(start)||fit(start,even);
  for(let s=start-1;s>=0;s--)out[s]=own(s,out[s+1])||fit(s,out[s+1]);
  for(let s=start+1;s<strips.length;s++)out[s]=own(s,out[s-1])||fit(s,out[s-1]);

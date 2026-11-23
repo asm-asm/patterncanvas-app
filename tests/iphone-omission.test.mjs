@@ -36,15 +36,3 @@ test('the row offset needs agreement: one misread number or stray text does not 
  assert.equal(rowOffset([{value:15,y:1},{value:20,y:6}],rowAt),14);
  assert.equal(rowOffset([{value:5,y:5},{value:30,y:5}],rowAt),null,'two readings that disagree');
 });
-
-test('counts are checked against the printed numbers: a count one off at an edge is put right',async()=>{
- const {checkCounts}=await import('../docs/iphone/app/chart-convert.mjs');
- const photo=await omissionPhoto(),flat=rectify(photo.rgba,photo.width,photo.height,photo.quad),gray=grayscale(flat.data,flat.width,flat.height);
- const whole=analyzeGrid(gray,flat.width,flat.height,flat.grid),gaps=findGaps(gray,flat.width,flat.height,flat.grid,OMIT.cols);
- const upper={...flat.grid,bottom:gaps[0][0]/flat.height},a=analyzeGrid(gray,flat.width,flat.height,upper),pitch=(flat.grid.right-flat.grid.left)*flat.width/OMIT.cols;
- const numbers={rows:readRowNumbers(pageRegion(gray,flat.width,flat.height),flat.width,flat.height,flat.grid,pitch)};
- assert.equal(checkCounts(a,OMIT.upper,null,numbers).rows,OMIT.upper,'a right count stays');
- const off=checkCounts(a,OMIT.upper-1,null,numbers);assert.equal(off.rows,OMIT.upper,'one too few is corrected');assert.ok(off.rowsChecked);
- assert.equal(checkCounts(a,OMIT.upper-1,null,{rows:[]}).rows,OMIT.upper-1,'no numbers: the lines stand');
- assert.equal(whole.cols.rows,OMIT.cols);
-});
