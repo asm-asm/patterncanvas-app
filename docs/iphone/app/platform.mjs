@@ -6,6 +6,9 @@ export const readLock=()=>localStorage.getItem('patterncanvas-chart-locked')==='
 export const writeLock=value=>localStorage.setItem('patterncanvas-chart-locked',String(value));
 export const rowCompleted=()=>{};
 export const requestReview=()=>{};
+// The native iOS adapter overrides this with Apple Vision. Web builds retain the
+// same import surface and simply continue without OCR results.
+export const recognizeText=async()=>[];
 export async function exportProject(data,name){
   const url=URL.createObjectURL(new Blob([data],{type:'application/json'})),a=document.createElement('a');
   a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);

@@ -38,8 +38,10 @@ export function prepareOffline(){document.getElementById('offline-state').textCo
 
 import {registerPlugin} from '@capacitor/core';
 const Purchases=registerPlugin('Purchases');
+const VisionText=registerPlugin('VisionText');
 export const getPurchaseStatus=options=>Purchases.status(options);
 export const purchaseProduct=productId=>Purchases.purchase({productId});
 export const restorePurchases=()=>Purchases.restore();
 export const requestReview=()=>Purchases.requestReview().catch(()=>{});
+export const recognizeText=image=>VisionText.recognize({image}).then(r=>r.items||[]).catch(()=>[]);
 export const onPurchaseChange=listener=>Purchases.addListener('changed',listener).catch(()=>{});

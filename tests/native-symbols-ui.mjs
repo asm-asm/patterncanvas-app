@@ -24,7 +24,8 @@ try{
  const read=()=>page.evaluate(()=>JSON.parse(localStorage.getItem('patterncanvas-iphone-v1')));
  const preview=await page.locator('#preview').evaluate(c=>c.toDataURL());
  await page.locator('[data-tool=symbol]').click();
- assert.equal(await page.locator('#stitch-symbol option').count(),7);
+ // Six increases, the knitting symbols (all but the unread mark), and 「記号だけ消す」.
+ assert.equal(await page.locator('#stitch-symbol > option').count(),7);assert.equal(await page.locator('#stitch-symbol optgroup option').count(),19);
  const codes=['M1L','M1R','M1LP','M1RP','KFB','YO'];
  for(let x=0;x<codes.length;x++){
   await page.locator('#stitch-symbol').selectOption(codes[x]);
