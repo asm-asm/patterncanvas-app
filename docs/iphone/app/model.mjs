@@ -1,5 +1,4 @@
 import {reduceImage} from './image-model.mjs';
-import {validateScan,scanRows} from './scan-model.mjs';
 export const INCREASES=Object.freeze([
  {code:'M1L',name:'左増し目（表目）',description:'渡り糸から左に傾く1目を作る増し目。'},
  {code:'M1R',name:'右増し目（表目）',description:'渡り糸から右に傾く1目を作る増し目。'},
@@ -19,8 +18,7 @@ export function setSymbol(p,x,r,code){
 }
 export function erase(p,x,r){paint(p,x,r,p.yarns[0].id);setSymbol(p,x,r,null);}
 
-// Scanned pages carry large JPEG strings: copies share them (strings are immutable) instead of duplicating them.
-export const clone = p => {if(!p?.scan)return JSON.parse(JSON.stringify(p));const {scan,...rest}=p,q=JSON.parse(JSON.stringify(rest));q.scan={...scan,pages:scan.pages.map(pg=>({...pg,grid:{...pg.grid},strips:[...pg.strips],lines:pg.lines.map(ys=>[...ys])}))};return q;};
+export const clone = p => JSON.parse(JSON.stringify(p));
 export const totalRows = p => p.rows * p.verticalRepeats;
 export const totalColumns = p => p.columns * p.horizontalRepeats;
 export const colorAt = (p, x, row) => p.cells[row % p.rows][x % p.columns];
@@ -80,8 +78,7 @@ export function validate(p) {
   if(!p.notes||typeof p.notes!=='object'||Array.isArray(p.notes)||Object.entries(p.notes).some(([k,v])=>!/^\d+$/.test(k)||!integer(Number(k),1,totalRows(p))||typeof v!=='string'||v.length>2000))throw Error('メモが不正です');
   if(p.topDown!==undefined&&typeof p.topDown!=='boolean')throw Error('編む方向が不正です');
   for(const key of ['flatKnitting','startWrongSide'])if(p[key]!==undefined&&typeof p[key]!=='boolean')throw Error('往復編みの設定が不正です');
-  let scan;if(p.scan!==undefined){scan=validateScan(p.scan);if(p.columns!==1||p.horizontalRepeats!==1||p.verticalRepeats!==1||p.rows!==scanRows(scan))throw Error('撮影した編み図と段数が合いません');}
-  return {...blank(p.columns,p.rows),...(scan?{scan}:{}),topDown:p.topDown===true,flatKnitting:p.flatKnitting===true,startWrongSide:p.startWrongSide===true,format:p.format,name:p.name,cells:clone(p.cells),...(p.symbols?{symbols:clone(p.symbols)}:{}),yarns:clone(p.yarns),horizontalRepeats:p.horizontalRepeats,verticalRepeats:p.verticalRepeats,currentRow:p.currentRow,completedRows:[...new Set(p.completedRows)],notes:{...p.notes},showDividers:p.showDividers!==false,updatedAt:Number.isFinite(p.updatedAt)?p.updatedAt:Date.now()};
+  return {...blank(p.columns,p.rows),topDown:p.topDown===true,flatKnitting:p.flatKnitting===true,startWrongSide:p.startWrongSide===true,format:p.format,name:p.name,cells:clone(p.cells),...(p.symbols?{symbols:clone(p.symbols)}:{}),yarns:clone(p.yarns),horizontalRepeats:p.horizontalRepeats,verticalRepeats:p.verticalRepeats,currentRow:p.currentRow,completedRows:[...new Set(p.completedRows)],notes:{...p.notes},showDividers:p.showDividers!==false,updatedAt:Number.isFinite(p.updatedAt)?p.updatedAt:Date.now()};
 }
 export function paint(p,x,r,id){if(p.cells[r][x]!==null)p.cells[r][x]=id;}
 export function fill(p,x,r,id){const before=p.cells[r][x];if(before===null||before===id)return;const q=[[x,r]];p.cells[r][x]=id;while(q.length){const [a,b]=q.pop();for(const [c,d] of [[a-1,b],[a+1,b],[a,b-1],[a,b+1]])if(c>=0&&d>=0&&c<p.columns&&d<p.rows&&p.cells[d][c]===before){p.cells[d][c]=id;q.push([c,d]);}}}
