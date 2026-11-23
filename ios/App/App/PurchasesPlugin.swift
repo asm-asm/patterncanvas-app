@@ -145,8 +145,5 @@ public class PurchasesPlugin: CAPPlugin, CAPBridgedPlugin {
 }
 
 class PurchaseViewController: CAPBridgeViewController {
-    override func capacitorDidLoad() {
-        bridge?.registerPluginInstance(PurchasesPlugin())
-        bridge?.registerPluginInstance(TextReaderPlugin())
-    }
+    override func capacitorDidLoad() { bridge?.registerPluginInstance(PurchasesPlugin()) }
 }

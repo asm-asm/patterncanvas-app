@@ -19,7 +19,6 @@
 		B731ED883ACA42FA99CE0001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B731ED883ACA42FA99CE0002 /* PrivacyInfo.xcprivacy */; };
 		BA1200000000000000000002 /* PurchasesPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1200000000000000000001 /* PurchasesPlugin.swift */; };
 		BA1200000000000000000012 /* PurchasePolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1200000000000000000011 /* PurchasePolicy.swift */; };
-		BA1200000000000000000022 /* TextReaderPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA1200000000000000000021 /* TextReaderPlugin.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,7 +36,6 @@
 		B731ED883ACA42FA99CE0002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		BA1200000000000000000001 /* PurchasesPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchasesPlugin.swift; sourceTree = "<group>"; };
 		BA1200000000000000000011 /* PurchasePolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PurchasePolicy.swift; sourceTree = "<group>"; };
-		BA1200000000000000000021 /* TextReaderPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextReaderPlugin.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -74,7 +72,6 @@
 			children = (
 				BA1200000000000000000001 /* PurchasesPlugin.swift */,
 				BA1200000000000000000011 /* PurchasePolicy.swift */,
-				BA1200000000000000000021 /* TextReaderPlugin.swift */,
 				9582B6822FE993A50072D4E8 /* SceneDelegate.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
@@ -175,7 +172,6 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				BA1200000000000000000002 /* PurchasesPlugin.swift in Sources */,
 				BA1200000000000000000012 /* PurchasePolicy.swift in Sources */,
-				BA1200000000000000000022 /* TextReaderPlugin.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -1,6 +1,6 @@
 import {rectify,grayscale,detectGrid,insetQuad,checkQuad,flatRegion,linesAt,SCAN_MAX_ROWS} from './scan-model.mjs';
 import {readRowNumbers,readStitchNumbers,rowOffset} from './rownumbers.mjs';
-import {analyzeGrid,findGaps,checkCounts,noteBoxes,cellsUnderNotes,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
+import {analyzeGrid,findGaps,checkCounts,fitGrid,buildMesh,unwarp,readCells,outsideCells,groupShapes,groupColours,mergeColours,buildChart,spanReader,hex} from './chart-convert.mjs';
 import {STITCHES,stitchPart,stitchDef} from './stitches.mjs';
 import {recognize} from './recognize.mjs';
 import {INCREASES} from './model.mjs';
@@ -25,7 +25,7 @@ function zoomGestures(canvas,view,onChange){
  canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.deltaY<0?1.15:1/1.15,point(e));onChange();},{passive:false});
 }
 
-export function setupScanImport({replace,editable,message,readText=null}){
+export function setupScanImport({replace,editable,message}){
  const $=id=>document.getElementById(id),dialog=$('scan-dialog');
  let units=[],unitOf=[],pages=[],join='single',addAt='right',source=null,quad=null,current=null,drag=null,fit=null,last=null,reading=null,chart=null,timer=0;
  const gridView={scale:0,x:0,y:0};
@@ -89,7 +89,7 @@ export function setupScanImport({replace,editable,message,readText=null}){
  $('scan-flatten').onclick=()=>{
   try{checkQuad(quad,source.width,source.height);}catch(error){$('scan-corners-error').textContent=error.message;return;}
   $('scan-flatten').disabled=true;$('scan-flatten').textContent='ゆがみを直しています…';
-  setTimeout(async()=>{try{
+  setTimeout(()=>{try{
    const data=source.getContext('2d',{willReadFrequently:true}).getImageData(0,0,source.width,source.height).data,r=rectify(data,source.width,source.height,quad);
    const gray=grayscale(r.data,r.width,r.height),analysis=analyzeGrid(gray,r.width,r.height,r.grid),C0=analysis.cols.rows;
    // Bands with no stitch lines across the grid are rows the book left out (「省略」): the frame splits into blocks there.
@@ -101,19 +101,10 @@ export function setupScanImport({replace,editable,message,readText=null}){
    const region=(x0,x1,y0,y1)=>({...flatRegion(data,source.width,source.height,quad,r.width,r.height,{x0,x1,y0,y1},density),k:density});
    const rowPitch=(r.grid.bottom-r.grid.top)*r.height/Math.max(1,analysis.rows.rows||40),colPitch=(r.grid.right-r.grid.left)*r.width/Math.max(1,C0||40);
    const numbers={rows:readRowNumbers(region,r.width,r.height,r.grid,rowPitch),stitches:readStitchNumbers(region,r.width,r.height,r.grid,colPitch)};
-   // On the device: the system's text recognition finds the notes and reads the numbers far better than the digit
-   // shapes above (which stay for when it is not there).
-   let notes=[];
-   if(readText){try{const canvas=document.createElement('canvas');canvas.width=r.width;canvas.height=r.height;canvas.getContext('2d').putImageData(new ImageData(r.data,r.width,r.height),0,0);
-     const found=await readText(canvas.toDataURL('image/jpeg',.9).split(',')[1]),W=r.width,H=r.height,g=r.grid;
-     const items=(found.items||[]).map(t=>({text:String(t.text),confidence:t.confidence,x:t.x*W,y:t.y*H,w:t.w*W,h:t.h*H}));notes=noteBoxes(items);
-     const read=(found.numbers||[]).map(n=>({value:n.value,x:(n.x+n.w/2)*W,y:(n.y+n.h/2)*H}));
-     const side=read.filter(n=>n.x<g.left*W||n.x>g.right*W),below=read.filter(n=>n.y<g.top*H||n.y>g.bottom*H);
-     if(side.length>=2)numbers.rows=side;if(below.length>=2)numbers.stitches=below;}catch{}}
    const whole=checkCounts(analysis,blocks.length===1?analysis.rows.rows:null,C0,numbers);
    blocks.forEach(b=>{b.count=blocks.length===1?whole.rows:checkCounts(b.analysis,b.analysis.rows.rows,null,{rows:numbers.rows}).rows;});
    const C1=whole.cols;
-   current={rgba:r.data,width:r.width,height:r.height,analysis,blocks,notes,numbers:numbers.rows,omits:gaps.map(()=>({value:null,edited:false})),source,quad:quad.map(q=>[...q])};
+   current={rgba:r.data,width:r.width,height:r.height,analysis,blocks,numbers:numbers.rows,omits:gaps.map(()=>({value:null,edited:false})),source,quad:quad.map(q=>[...q])};
    const fixedRows=join==='side'&&pages.length===1&&blocks.length===1&&(pages[0].parts?.length??1)===1?pages[0].R:null;
    $('scan-rows').value=fixedRows??blocks[0].count??'';$('scan-cols').value=C1??'';
    $('scan-rows').disabled=$('scan-rows-less').disabled=$('scan-rows-more').disabled=fixedRows!==null;
@@ -183,7 +174,7 @@ export function setupScanImport({replace,editable,message,readText=null}){
  $('scan-page-done').onclick=()=>{
   if(!current?.unwarp){$('scan-grid-error').textContent='マス目の計算が終わるまでお待ちください。';return;}
   const page={source:current.source,quad:current.quad,R:current.R,C:current.C,omits:current.omits.map(o=>o.value||0),
-   parts:current.blocks.map(b=>({rgba:current.rgba,width:current.width,height:current.height,mesh:b.mesh,R:b.R,C:current.C,unwarp:b.unwarp,notes:current.notes}))};
+   parts:current.blocks.map(b=>({rgba:current.rgba,width:current.width,height:current.height,mesh:b.mesh,R:b.R,C:current.C,unwarp:b.unwarp}))};
   if(pages.length===1&&join==='side'&&addAt==='left')pages.unshift(page);else pages.push(page);
   if(pages.length===1)join='single';last={source:current.source,quad:current.quad};current=null;source=null;reading=null;showPages();
  };
@@ -220,9 +211,7 @@ export function setupScanImport({replace,editable,message,readText=null}){
   // Every block of every page is read on its own (a unit); unitOf[n][p] finds it again.
   units=pages.flatMap((pg,n)=>pg.parts.map((part,p)=>({n,p,part})));unitOf=pages.map((pg,n)=>pg.parts.map((_,p)=>units.findIndex(u=>u.n===n&&u.p===p)));
   units.forEach(({part:pg},n)=>{if(!pg.cells){pg.cells=readCells(pg.rgba,pg.width,pg.height,pg.mesh,pg.R,pg.C);pg.outside=outsideCells(pg.cells,pg.R,pg.C);
-    const under=cellsUnderNotes(pg.cells,pg.mesh,pg.C,pg.width,pg.height,pg.notes||[],pg.outside);pg.outside=under.outside;
-    pg.codes=recognize(pg.cells,pg.R,pg.C,pg.outside,{groups:groupShapes(pg.cells,pg.outside),span:spanReader(pg.rgba,pg.width,pg.height,pg.mesh,pg.C,pg.cells)});
-    under.notes.forEach((v,k)=>{if(v&&!pg.outside[k])pg.codes[k]=null;});} // a note printed over the grid is not a symbol
+    pg.codes=recognize(pg.cells,pg.R,pg.C,pg.outside,{groups:groupShapes(pg.cells,pg.outside),span:spanReader(pg.rgba,pg.width,pg.height,pg.mesh,pg.C,pg.cells)});}
    pg.cells.forEach((c,k)=>{all.push(c);at.push([n,k]);});});
   const U=units.map(u=>u.part),skip=Uint8Array.from(at,([n,k])=>U[n].outside[k]),detected=groupColours(all,skip);
   // Unread cells, grouped by shape over all pages, so the same unknown symbol is named once.

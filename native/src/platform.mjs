@@ -38,9 +38,6 @@ export function prepareOffline(){document.getElementById('offline-state').textCo
 
 import {registerPlugin} from '@capacitor/core';
 const Purchases=registerPlugin('Purchases');
-// On-device text recognition (Apple Vision) for notes and row/stitch numbers on a photographed chart.
-const TextReader=registerPlugin('TextReader');
-export const readText=image=>TextReader.read({image});
 export const getPurchaseStatus=options=>Purchases.status(options);
 export const purchaseProduct=productId=>Purchases.purchase({productId});
 export const restorePurchases=()=>Purchases.restore();
