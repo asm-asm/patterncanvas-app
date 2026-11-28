@@ -95,7 +95,7 @@ export function setupScanImport({replace,editable,message}){
    const analysis=analyzeGrid(grayscale(r.data,r.width,r.height),r.width,r.height,r.grid);
    current={rgba:r.data,width:r.width,height:r.height,analysis,source,quad:quad.map(q=>[...q]),ocr:[]};
    const ocrCanvas=document.createElement('canvas');ocrCanvas.width=r.width;ocrCanvas.height=r.height;ocrCanvas.getContext('2d').putImageData(new ImageData(r.data,r.width,r.height),0,0);
-   recognizeText(ocrCanvas.toDataURL('image/jpeg',.82)).then(items=>{current?.ocr=items.filter(i=>typeof i.text==='string'&&Number.isFinite(i.confidence));}).catch(()=>{});
+   recognizeText(ocrCanvas.toDataURL('image/jpeg',.82)).then(items=>{if(current)current.ocr=items.filter(i=>typeof i.text==='string'&&Number.isFinite(i.confidence));}).catch(()=>{});
    const fixedRows=join==='side'&&pages.length===1?pages[0].R:null;
    $('scan-rows').value=fixedRows??analysis.rows.rows??'';$('scan-cols').value=analysis.cols.rows??'';
    $('scan-rows').disabled=$('scan-rows-less').disabled=$('scan-rows-more').disabled=fixedRows!==null;

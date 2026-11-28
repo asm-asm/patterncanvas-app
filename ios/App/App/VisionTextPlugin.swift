@@ -16,15 +16,16 @@ public class VisionTextPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         let request = VNRecognizeTextRequest { request, error in
             if let error { call.reject("文字を読み取れませんでした: \(error.localizedDescription)"); return }
-            let items: [JSObject] = (request.results as? [VNRecognizedTextObservation] ?? []).compactMap { observation in
+            let items: [JSObject] = (request.results as? [VNRecognizedTextObservation] ?? []).compactMap { observation -> JSObject? in
                 guard let candidate = observation.topCandidates(1).first else { return nil }
                 let box = observation.boundingBox
-                return ["text": candidate.string, "confidence": candidate.confidence,
-                        "x": box.minX, "y": 1 - box.maxY, "width": box.width, "height": box.height]
+                return ["text": candidate.string, "confidence": Double(candidate.confidence),
+                        "x": Double(box.minX), "y": Double(1 - box.maxY),
+                        "width": Double(box.width), "height": Double(box.height)]
             }
             call.resolve(["items": items])
         }
-        request.recognitionLevel = .accurate
+        request.recognitionLevel = VNRequestTextRecognitionLevel.accurate
         request.usesLanguageCorrection = true
         request.recognitionLanguages = ["ja-JP", "en-US"]
         DispatchQueue.global(qos: .userInitiated).async {

@@ -6,3 +6,41 @@ function palette(weights,count){const buckets=[[...weights.keys()]];const range=
 export function reduceImage(bytes,w,h,count){if(!Number.isInteger(count)||count<2||count>32)throw Error('色数は2〜32で指定してください');const {pixels,weights}=source(bytes,w,h),colors=palette(weights,count),assign=new Map();for(const c of weights.keys())assign.set(c,colors.reduce((best,color,i)=>distance(c,color)<distance(c,colors[best])?i:best,0));return{colors,cells:Array.from({length:h},(_,r)=>pixels.slice((h-r-1)*w,(h-r)*w).map(c=>assign.get(c)))};}
 export function recommendColors(bytes,w,h){const {weights}=source(bytes,w,h);if(weights.size<=32)return{count:Math.max(2,weights.size),exact:true,withinTolerance:true};for(const count of [2,4,6,8,12,16,24,32]){const colors=palette(weights,count);if([...weights.keys()].every(c=>colors.some(color=>distance(c,color)<=24*24)))return{count,exact:false,withinTolerance:true};}return{count:32,exact:false,withinTolerance:false};}
 export function recommendSizes(w,h){if(w<=0||h<=0)throw Error('画像サイズが不正です');const longest=Math.max(w,h);return[40,80,120].map(n=>{const scale=Math.min(n,longest,200)/longest;return{columns:Math.max(1,Math.round(w*scale)),rows:Math.max(1,Math.round(h*scale))};}).filter((v,i,a)=>a.findIndex(o=>o.columns===v.columns&&o.rows===v.rows)===i);}
+// Dot-art / chart images: find the drawn cells (even when hand-drawn or AI-made cells are uneven)
+// and read one colour per cell from its centre, so grid lines and blurred edges never leak in.
+function luminance(bytes,w,h){const L=new Float32Array(w*h);for(let i=0;i<w*h;i++){const a=bytes[i*4+3]/255;L[i]=(.299*bytes[i*4]+.587*bytes[i*4+1]+.114*bytes[i*4+2])*a+255*(1-a);}return L;}
+// P[i] = average brightness jump across the boundary just before pixel i (i=0..n).
+function edgeProfile(L,w,h,vertical){const n=vertical?h:w,m=vertical?w:h,P=new Float64Array(n+1);
+ if(vertical){for(let y=1;y<h;y++){const o=y*w;for(let x=0;x<w;x++)P[y]+=Math.abs(L[o+x]-L[o-w+x]);}}else{for(let y=0;y<h;y++){const o=y*w;for(let x=1;x<w;x++)P[x]+=Math.abs(L[o+x]-L[o+x-1]);}}
+ for(let i=0;i<=n;i++)P[i]/=m;return P;}
+function smooth(P,r){if(r<1)return Float64Array.from(P);const out=new Float64Array(P.length);for(let i=0;i<P.length;i++){let s=0,c=0;for(let j=Math.max(0,i-r);j<=Math.min(P.length-1,i+r);j++){const k=r+1-Math.abs(i-j);s+=P[j]*k;c+=k;}out[i]=s/c;}return out;}
+// Cell pitch from autocorrelation; the smallest strong peak avoids picking 2 or 3 cells at once.
+function pitchOf(P){const n=P.length-1,mean=P.reduce((a,b)=>a+b,0)/P.length,c=Array.from(P,v=>v-mean),R=[];let zero=0;for(const v of c)zero+=v*v;if(!(zero>0))return null;
+ const maxLag=Math.floor(n/2);for(let l=0;l<=maxLag;l++){let s=0;for(let i=0;i+l<c.length;i++)s+=c[i]*c[i+l];R[l]=s/(c.length-l)/(zero/c.length);}
+ const peaks=[];for(let l=4;l<maxLag;l++)if(R[l]>0&&R[l]>=R[l-1]&&R[l]>=R[l+1])peaks.push(l);if(!peaks.length)return null;
+ const top=Math.max(...peaks.map(l=>R[l])),l=peaks.find(l=>R[l]>=top*.7),d=R[l-1]-2*R[l]+R[l+1];return{pitch:d<0?l+(R[l-1]-R[l+1])/(2*d):l,strength:R[l]};}
+// Longest consistent chain of boundaries: each step is about one pitch and lands on a strong edge.
+function chain(V,pitch){const n=V.length-1,lo=Math.max(2,Math.floor(pitch*.75)),hi=Math.ceil(pitch*1.25),mean=V.reduce((a,b)=>a+b,0)/V.length,best=new Float64Array(n+1),prev=new Int32Array(n+1).fill(-1);let end=0;
+ for(let i=0;i<=n;i++){let from=-1;for(let j=Math.max(0,i-hi);j<=i-lo;j++)if(best[j]>0&&(from<0||best[j]>best[from]))from=j;best[i]=V[i]-mean+(from<0?0:best[from]);prev[i]=from;if(best[i]>best[end])end=i;}
+ const b=[];for(let i=end;i>=0;i=prev[i])b.unshift(i);return b;}
+// Exactly `count` cells between the outer boundaries, each boundary snapped to the strongest nearby edge.
+function fitCount(V,start,end,count){const q=(end-start)/count,lo=Math.max(1,Math.floor(q*.6)),hi=Math.ceil(q*1.4),score=Array.from({length:count+1},()=>new Float64Array(end+1).fill(-Infinity)),prev=Array.from({length:count+1},()=>new Int32Array(end+1).fill(-1));score[0][start]=0;
+ for(let k=1;k<=count;k++){const a=Math.max(start,Math.floor(start+q*k-q*.45)),b=Math.min(end,Math.ceil(start+q*k+q*.45));for(let i=a;i<=b;i++){if(k===count&&i!==end)continue;for(let j=Math.max(start,i-hi);j<=i-lo;j++){const s=score[k-1][j]+V[i];if(s>score[k][i]){score[k][i]=s;prev[k][i]=j;}}}}
+ if(score[count][end]===-Infinity)return Array.from({length:count+1},(_,k)=>Math.round(start+q*k));const b=[end];for(let k=count,i=end;k>0;k--){i=prev[k][i];b.unshift(i);}return b;}
+function axis(L,w,h,vertical){const raw=edgeProfile(L,w,h,vertical),p=pitchOf(smooth(raw,1));if(!p||p.strength<.15)return null;const V=smooth(raw,Math.max(1,Math.round(p.pitch/12))),n=V.length-1;
+ const b=chain(V,p.pitch),cells=b.length-1;if(cells<2||b.at(-1)-b[0]<n*.5)return null;const mean=V.reduce((a,c)=>a+c,0)/V.length,inner=b.slice(1,-1),contrast=inner.length?inner.reduce((a,i)=>a+V[i],0)/inner.length/mean:0;if(contrast<1.6)return null;return{boundaries:b,profile:V,pitch:p.pitch};}
+// Texture across a band (lines running along it): a blank page margin has none, a partly cut-off row of cells does.
+function bandEnergy(L,w,h,vertical,a,b){let s=0,c=0;if(b-a<1)return 0;if(vertical){for(let y=Math.max(1,a);y<Math.min(h,b);y++)for(let x=1;x<w;x++){s+=Math.abs(L[y*w+x]-L[y*w+x-1]);c++;}}else{for(let y=1;y<h;y++)for(let x=Math.max(0,a);x<Math.min(w,b);x++){s+=Math.abs(L[y*w+x]-L[(y-1)*w+x]);c++;}}return c?s/c:0;}
+// Cells touching the image edge have no outer line; count them when the edge band is about one cell and textured like its neighbour.
+function extendToEdges(L,w,h,vertical,a){const b=a.boundaries,n=vertical?h:w,ok=(lo,hi,nlo,nhi)=>hi-lo>=a.pitch*.55&&hi-lo<=a.pitch*1.3&&bandEnergy(L,w,h,vertical,lo,hi)>=.35*bandEnergy(L,w,h,vertical,nlo,nhi);
+ if(b[0]>0&&ok(0,b[0],b[0],b[1]))b.unshift(0);if(b.at(-1)<n&&ok(b.at(-1),n,b.at(-2),b.at(-1)))b.push(n);}
+export function detectCellGrid(bytes,w,h){if(bytes.length!==w*h*4||w<8||h<8)return null;const L=luminance(bytes,w,h),x=axis(L,w,h,false),y=axis(L,w,h,true);if(!x||!y)return null;extendToEdges(L,w,h,false,x);extendToEdges(L,w,h,true,y);const columns=x.boundaries.length-1,rows=y.boundaries.length-1;if(columns>200||rows>200)return null;return{columns,rows,xs:x.boundaries,ys:y.boundaries,x,y};}
+// Boundaries for a requested size: the detected ones, or a fresh fit inside the detected grid area.
+export function cellBoundaries(grid,columns,rows){const pick=(a,count)=>a.boundaries.length-1===count?a.boundaries:fitCount(a.profile,a.boundaries[0],a.boundaries.at(-1),count);return{xs:pick(grid.x,columns),ys:pick(grid.y,rows)};}
+// One colour per cell: the most common colour in the inner half of the cell (grid lines and edges excluded).
+export function sampleCells(bytes,w,h,xs,ys){const columns=xs.length-1,rows=ys.length-1,out=new Uint8ClampedArray(columns*rows*4);
+ for(let r=0;r<rows;r++)for(let c=0;c<columns;c++){const inset=(a,b)=>{const m=(b-a)/4;let s=Math.round(a+m),e=Math.round(b-m);if(e<=s){s=Math.floor((a+b)/2);e=s+1;}return[s,e];},[x0,x1]=inset(xs[c],xs[c+1]),[y0,y1]=inset(ys[r],ys[r+1]),bins=new Map();
+  for(let y=Math.max(0,y0);y<Math.min(h,y1);y++)for(let x=Math.max(0,x0);x<Math.min(w,x1);x++){const i=(y*w+x)*4,a=bytes[i+3],v=[0,1,2].map(k=>Math.round((bytes[i+k]*a+255*(255-a))/255)),key=(v[0]>>4)<<8|(v[1]>>4)<<4|v[2]>>4,bin=bins.get(key)||{n:0,r:0,g:0,b:0};bin.n++;bin.r+=v[0];bin.g+=v[1];bin.b+=v[2];bins.set(key,bin);}
+  let best=null;for(const bin of bins.values())if(!best||bin.n>best.n)best=bin;const o=(r*columns+c)*4;if(!best){out[o]=out[o+1]=out[o+2]=out[o+3]=255;continue;}
+  out[o]=Math.round(best.r/best.n);out[o+1]=Math.round(best.g/best.n);out[o+2]=Math.round(best.b/best.n);out[o+3]=255;}
+ return out;}
